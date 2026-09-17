@@ -59,7 +59,7 @@ test('offline fixes, provider, consent, structured review, history and persisten
   await page.getByTitle('Kiểm tra', { exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Kết nối thành công' })).toBeVisible();
   await expect(page.getByText('Hoạt động', { exact: true })).toBeVisible();
-  await page.getByLabel('Model', { exact: true }).fill('test-model');
+  await page.getByLabel('Model dùng chung', { exact: true }).fill('test-model');
   await page.getByRole('button', { name: 'Lưu model', exact: true }).click();
   await expect(page.getByText('Đã lưu model.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Phản biện đề', exact: true }).click();
@@ -95,7 +95,7 @@ test('offline fixes, provider, consent, structured review, history and persisten
   await page.getByRole('dialog').getByRole('button', { name: 'Xóa', exact: true }).click();
   await expect(page.locator('.ai-history-row')).toHaveCount(0);
   await page.getByRole('button', { name: 'Provider', exact: true }).click();
-  await expect(page.getByLabel('Model', { exact: true })).toHaveValue('test-model');
-  await expect(page.getByRole('button', { name: 'Xóa key', exact: true })).toBeDisabled();
+  await expect(page.getByLabel('Model dùng chung', { exact: true })).toHaveValue('test-model');
+  await expect(page.getByRole('button', { name: 'Xóa key', exact: true })).toBeEnabled();
   expect(errors).toEqual([]);
 });
