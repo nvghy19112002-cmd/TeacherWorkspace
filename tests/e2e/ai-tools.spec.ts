@@ -57,7 +57,8 @@ test('offline fixes, provider, consent, structured review, history and persisten
   await page.getByPlaceholder('Nhập Gemini API key', { exact: true }).fill('fake-key-e2e-only');
   await page.getByRole('button', { name: 'Thêm key', exact: true }).click();
   await page.getByTitle('Kiểm tra', { exact: true }).click();
-  await expect(page.getByText(/Kết nối thành công/)).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Kết nối thành công' })).toBeVisible();
+  await expect(page.getByText('Hoạt động', { exact: true })).toBeVisible();
   await page.getByLabel('Model', { exact: true }).fill('test-model');
   await page.getByRole('button', { name: 'Lưu model', exact: true }).click();
   await expect(page.getByText('Đã lưu model.', { exact: true })).toBeVisible();
