@@ -1,0 +1,44 @@
+name: Windows checks and installer
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Set Rust stable MSVC
+        run: rustup default stable-x86_64-pc-windows-msvc
+      - name: Install frontend packages
+        run: npm ci
+      - name: Check TypeScript, lint, domain tests and production build
+        run: npm run check
+      - name: Check native SQLite backend
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Install browser for integration tests
+        run: npx playwright install chromium
+      - name: Test complete UI flows
+        run: npm run test:e2e
+      - name: Build CI installer without release signing secrets
+        run: npm run desktop:build -- --config src-tauri/tauri.ci.conf.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TeacherWorkspace-Windows-x64-CI-unsigned
+          path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/teacher-workspace.exe
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: integration-test-failures
+          path: test-results/
