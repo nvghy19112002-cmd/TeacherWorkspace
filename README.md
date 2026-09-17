@@ -4,7 +4,11 @@
 
 Từ V1.4.1, khi chưa bật GitHub auto-update, người dùng tải installer Windows mới rồi vào **Cài đặt → Cập nhật từ file đã tải**. Ứng dụng kiểm tra file, từ chối phiên bản bằng/cũ hơn, sao lưu SQLite, mở installer và tự đóng. Xem chi tiết tại `docs/MANUAL_UPDATE.md`.
 
-## V1.4.1 · Manual Update, Question Bank và AI Tools
+## V1.4.2 · Cây KNTT và giao diện Ngân hàng câu hỏi
+
+V1.4.2 khởi tạo sẵn cây **Toán 10–11 KNTT** đến cấp Bài trên ngân hàng mới, đồng thời nén lại bố cục Kho câu hỏi để ưu tiên danh sách câu. Xem [bàn giao V1.4.2](docs/HANDOFF_V1.4.2.md).
+
+## Nền tảng V1.4.1 · Manual Update, Question Bank và AI Tools
 
 **Kênh cập nhật tự động:** workflow `Publish Windows update` build/ký/xác minh/publish khi đẩy tag phiên bản hoặc chạy Run workflow. Thiết lập một lần tại [AUTO_RELEASE.md](docs/AUTO_RELEASE.md). Workflow mới đã chuẩn bị trong source; chưa được đưa lên repository hoặc chạy khi chưa có quyền GitHub và secrets ký.
 
@@ -69,7 +73,7 @@ npm run desktop:build -- --config src-tauri/tauri.ci.conf.json
 Kết quả sau **khi build thành công trên Windows x64**:
 
 - Executable: `src-tauri\target\release\teacher-workspace.exe`
-- Installer NSIS: `src-tauri\target\release\bundle\nsis\Teacher Workspace_1.4.1_x64-setup.exe`
+- Installer NSIS: `src-tauri\target\release\bundle\nsis\Teacher Workspace_1.4.2_x64-setup.exe`
 
 Installer thông thường nhúng WebView2 bootstrapper; nếu máy chưa có WebView2, bước cài runtime cần mạng. Để tạo installer chứa cả runtime và cài trên máy hoàn toàn offline:
 

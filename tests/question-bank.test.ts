@@ -10,9 +10,11 @@ import {
 } from '../src/modules/question-bank/domain/exams';
 import {
   emptyBankSnapshot,
+  bankSnapshotSchema,
   type CurriculumNode,
   type Question,
 } from '../src/modules/question-bank/domain/model';
+import { createKnttMath1011Curriculum } from '../src/modules/question-bank/domain/knttMath1011';
 
 const now = '2026-09-12T00:00:00.000Z';
 const nodes: CurriculumNode[] = [
@@ -67,6 +69,18 @@ describe('Question Bank V1.4', () => {
         level: 'H',
       }),
     ).toBe('0D1H1-2');
+  });
+  it('ships the KNTT grade 10–11 hierarchy without pre-empting teacher-approved forms', () => {
+    const curriculumNodes = createKnttMath1011Curriculum(now);
+    expect(() =>
+      bankSnapshotSchema.parse({ ...emptyBankSnapshot(), curriculumNodes }),
+    ).not.toThrow();
+    expect(
+      curriculumNodes.filter((node) => node.kind === 'grade').map((node) => node.name),
+    ).toEqual(['Lớp 10', 'Lớp 11']);
+    expect(curriculumNodes.some((node) => node.name === 'Bài 1. Mệnh đề')).toBe(true);
+    expect(curriculumNodes.some((node) => node.name === 'Bài 33. Đạo hàm cấp hai')).toBe(true);
+    expect(curriculumNodes.some((node) => node.kind === 'form')).toBe(false);
   });
   it('never reuses a deleted question sequence', () => {
     const old = {

@@ -10,7 +10,9 @@ import {
   ListChecks,
   LoaderCircle,
   Plus,
+  RotateCcw,
   Search,
+  SlidersHorizontal,
   Trash2,
   X,
 } from 'lucide-react';
@@ -31,6 +33,7 @@ import {
   type ClassificationRun,
   type Question,
 } from './domain/model';
+import { curriculumPath } from './domain/curriculum';
 import { useQuestionBank } from './store';
 import './questionBank.css';
 
@@ -67,7 +70,7 @@ export default function QuestionBankPage() {
   const [chapterId, setChapterId] = useState('');
   const [lessonId, setLessonId] = useState('');
   const [formId, setFormId] = useState('');
-  const [imageFilter, setImageFilter] = useState('');
+  const [status, setStatus] = useState('');
   const [editor, setEditor] = useState<Question | 'new' | null>(null);
   const [checked, setChecked] = useState<string[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
@@ -88,16 +91,65 @@ export default function QuestionBankPage() {
           `${q.displayId} ${q.rawSource} ${q.tags.join(' ')}`
             .toLocaleLowerCase('vi')
             .includes(needle);
-        const matchesTree = (!gradeId || q.gradeNodeId === gradeId) && (!domainId || q.domainNodeId === domainId) && (!chapterId || q.chapterNodeId === chapterId) && (!lessonId || q.lessonNodeId === lessonId) && (!formId || q.formNodeId === formId);
+        const matchesTree =
+          (!gradeId || q.gradeNodeId === gradeId) &&
+          (!domainId || q.domainNodeId === domainId) &&
+          (!chapterId || q.chapterNodeId === chapterId) &&
+          (!lessonId || q.lessonNodeId === lessonId) &&
+          (!formId || q.formNodeId === formId);
         return (
           matchesText &&
           (!level || q.level === level) &&
           (!type || q.questionType === type) &&
-          matchesTree && (!imageFilter || (imageFilter === 'with' ? q.hasImage : !q.hasImage))
+          (!status || q.status === status) &&
+          matchesTree
         );
       }),
-    [chapterId, data.questions, domainId, formId, gradeId, imageFilter, level, lessonId, query, tab, type],
+    [
+      data.questions,
+      chapterId,
+      domainId,
+      formId,
+      gradeId,
+      lessonId,
+      level,
+      query,
+      status,
+      tab,
+      type,
+    ],
   );
+  const curriculum = useMemo(
+    () =>
+      data.curriculumNodes
+        .filter((node) => !node.archived)
+        .sort((left, right) => left.sortOrder - right.sortOrder),
+    [data.curriculumNodes],
+  );
+  const children = (
+    parentId: string | null,
+    kind: 'grade' | 'domain' | 'chapter' | 'lesson' | 'form',
+  ) => curriculum.filter((node) => node.parentId === parentId && node.kind === kind);
+  const grades = children(null, 'grade');
+  const domains = children(gradeId || null, 'domain');
+  const chapters = children(domainId || null, 'chapter');
+  const lessons = children(chapterId || null, 'lesson');
+  const forms = children(lessonId || null, 'form');
+  const hasFilters = Boolean(
+    query || gradeId || domainId || chapterId || lessonId || formId || level || type || status,
+  );
+
+  function resetFilters() {
+    setQuery('');
+    setGradeId('');
+    setDomainId('');
+    setChapterId('');
+    setLessonId('');
+    setFormId('');
+    setLevel('');
+    setType('');
+    setStatus('');
+  }
 
   async function importFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -165,12 +217,10 @@ export default function QuestionBankPage() {
           accepted: false,
           createdAt: new Date().toISOString(),
         };
-        await useQuestionBank
-          .getState()
-          .commit((current) => ({
-            ...current,
-            classificationRuns: [...current.classificationRuns, run],
-          }));
+        await useQuestionBank.getState().commit((current) => ({
+          ...current,
+          classificationRuns: [...current.classificationRuns, run],
+        }));
       } catch (error) {
         if (!controller.signal.aborted)
           toast(`${question.displayId || 'Câu nháp'}: ${errorText(error)}`, 'error');
@@ -233,12 +283,6 @@ export default function QuestionBankPage() {
     .filter((run) => !run.accepted)
     .slice()
     .reverse();
-  const activeNodes = data.curriculumNodes.filter((node) => !node.archived);
-  const grades = activeNodes.filter((node) => node.kind === 'grade');
-  const domains = activeNodes.filter((node) => node.kind === 'domain' && (!gradeId || node.parentId === gradeId));
-  const chapters = activeNodes.filter((node) => node.kind === 'chapter' && (!domainId || node.parentId === domainId));
-  const lessons = activeNodes.filter((node) => node.kind === 'lesson' && (!chapterId || node.parentId === chapterId));
-  const forms = activeNodes.filter((node) => node.kind === 'form' && (!lessonId || node.parentId === lessonId));
 
   return (
     <div className="qb-page">
@@ -349,11 +393,21 @@ export default function QuestionBankPage() {
       ) : tab === 'exams' ? (
         <ExamPanel />
       ) : (
-        <div className="qb-workspace">
+        <div className={`qb-workspace ${selected ? 'has-selection' : ''}`}>
           <aside className="panel qb-filters">
-            <h2>
-              <FolderTree size={18} /> Bộ lọc
-            </h2>
+            <div className="qb-filter-heading">
+              <div>
+                <h2>
+                  <SlidersHorizontal size={18} /> Bộ lọc
+                </h2>
+                <p>{visible.length} câu phù hợp</p>
+              </div>
+              {hasFilters && (
+                <button className="icon-button" title="Xóa bộ lọc" onClick={resetFilters}>
+                  <RotateCcw size={16} />
+                </button>
+              )}
+            </div>
             <label className="field">
               Tìm kiếm
               <div className="qb-search">
@@ -365,39 +419,142 @@ export default function QuestionBankPage() {
                 />
               </div>
             </label>
-            <div className="qb-filter-caption">Phân loại chương trình</div>
-            <label className="field">Lớp<select value={gradeId} onChange={(e) => { setGradeId(e.target.value); setDomainId(''); setChapterId(''); setLessonId(''); setFormId(''); }}><option value="">— Tất cả lớp —</option>{grades.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select></label>
-            <label className="field">Cấp 2<select value={domainId} onChange={(e) => { setDomainId(e.target.value); setChapterId(''); setLessonId(''); setFormId(''); }}><option value="">— Tất cả cấp 2 —</option>{domains.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select></label>
-            <label className="field">Chương<select value={chapterId} onChange={(e) => { setChapterId(e.target.value); setLessonId(''); setFormId(''); }}><option value="">— Tất cả chương —</option>{chapters.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select></label>
-            <label className="field">Bài<select value={lessonId} onChange={(e) => { setLessonId(e.target.value); setFormId(''); }}><option value="">— Tất cả bài —</option>{lessons.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select></label>
-            <label className="field">Dạng<select value={formId} onChange={(e) => setFormId(e.target.value)}><option value="">— Tất cả dạng —</option>{forms.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select></label>
-            <label className="field">
-              Mức độ
-              <select value={level} onChange={(e) => setLevel(e.target.value)}>
-                <option value="">Tất cả</option>
-                {Object.entries(LEVEL_LABELS).map(([id, label]) => (
-                  <option key={id} value={id}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">Hình ảnh<select value={imageFilter} onChange={(e) => setImageFilter(e.target.value)}><option value="">— Có/Không có hình —</option><option value="with">Có hình</option><option value="without">Không có hình</option></select></label>
-            <button className="qb-clear-filters" onClick={() => { setQuery(''); setGradeId(''); setDomainId(''); setChapterId(''); setLessonId(''); setFormId(''); setLevel(''); setType(''); setImageFilter(''); }}><Trash2 size={14} /> Xóa bộ lọc</button>
-            <label className="field">
-              Loại câu
-              <select value={type} onChange={(e) => setType(e.target.value)}>
-                <option value="">Tất cả</option>
-                {Object.entries(QUESTION_TYPE_LABELS).map(([id, label]) => (
-                  <option key={id} value={id}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <small>
-              {visible.length} câu phù hợp · {checked.length} đã chọn
-            </small>
+            <div className="qb-filter-group">
+              <span className="qb-filter-label">
+                <FolderTree size={14} /> Phân loại chương trình
+              </span>
+              <label className="field">
+                Lớp
+                <select
+                  value={gradeId}
+                  onChange={(e) => {
+                    setGradeId(e.target.value);
+                    setDomainId('');
+                    setChapterId('');
+                    setLessonId('');
+                    setFormId('');
+                  }}
+                >
+                  <option value="">— Tất cả lớp —</option>
+                  {grades.map((node) => (
+                    <option key={node.id} value={node.id}>
+                      {node.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Mạch kiến thức
+                <select
+                  value={domainId}
+                  disabled={!gradeId}
+                  onChange={(e) => {
+                    setDomainId(e.target.value);
+                    setChapterId('');
+                    setLessonId('');
+                    setFormId('');
+                  }}
+                >
+                  <option value="">— Tất cả mạch —</option>
+                  {domains.map((node) => (
+                    <option key={node.id} value={node.id}>
+                      {node.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Chương
+                <select
+                  value={chapterId}
+                  disabled={!domainId}
+                  onChange={(e) => {
+                    setChapterId(e.target.value);
+                    setLessonId('');
+                    setFormId('');
+                  }}
+                >
+                  <option value="">— Tất cả chương —</option>
+                  {chapters.map((node) => (
+                    <option key={node.id} value={node.id}>
+                      {node.code} · {node.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Bài
+                <select
+                  value={lessonId}
+                  disabled={!chapterId}
+                  onChange={(e) => {
+                    setLessonId(e.target.value);
+                    setFormId('');
+                  }}
+                >
+                  <option value="">— Tất cả bài —</option>
+                  {lessons.map((node) => (
+                    <option key={node.id} value={node.id}>
+                      {node.code} · {node.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Dạng
+                <select
+                  value={formId}
+                  disabled={!lessonId}
+                  onChange={(e) => setFormId(e.target.value)}
+                >
+                  <option value="">— Tất cả dạng —</option>
+                  {forms.map((node) => (
+                    <option key={node.id} value={node.id}>
+                      {node.code} · {node.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="qb-filter-group qb-filter-compact">
+              <label className="field">
+                Mức độ
+                <select value={level} onChange={(e) => setLevel(e.target.value)}>
+                  <option value="">Tất cả</option>
+                  {Object.entries(LEVEL_LABELS).map(([id, label]) => (
+                    <option key={id} value={id}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Loại câu
+                <select value={type} onChange={(e) => setType(e.target.value)}>
+                  <option value="">Tất cả</option>
+                  {Object.entries(QUESTION_TYPE_LABELS).map(([id, label]) => (
+                    <option key={id} value={id}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Trạng thái
+                <select value={status} onChange={(e) => setStatus(e.target.value)}>
+                  <option value="">Tất cả</option>
+                  {Object.entries(STATUS_LABELS).map(([id, label]) => (
+                    <option key={id} value={id}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="qb-filter-summary">
+              <span>{visible.length} câu</span>
+              <span>{curriculum.length} nút chương trình</span>
+            </div>
           </aside>
           <section className="panel qb-list">
             <div className="qb-panel-title">
@@ -405,8 +562,17 @@ export default function QuestionBankPage() {
                 <h2>
                   <ListChecks size={18} /> Danh sách câu
                 </h2>
-                <p>Chọn nhiều câu để chạy AI hoặc tạo đề.</p>
+                <p>
+                  {checked.length
+                    ? `Đã chọn ${checked.length} câu để AI hoặc tạo đề.`
+                    : 'Chọn nhiều câu để chạy AI hoặc tạo đề.'}
+                </p>
               </div>
+              {checked.length > 0 && (
+                <button className="button small secondary" onClick={() => setChecked([])}>
+                  Bỏ chọn
+                </button>
+              )}
             </div>
             {visible.map((q) => (
               <button
@@ -428,63 +594,94 @@ export default function QuestionBankPage() {
                 <span>
                   <strong>{q.displayId || 'CHƯA CÓ ID'}</strong>
                   <small>
-                    {LEVEL_LABELS[q.level]} · {QUESTION_TYPE_LABELS[q.questionType]}
+                    {curriculumPath(data, q.formNodeId || q.lessonNodeId) ||
+                      'Chưa gắn cây chương trình'}
                   </small>
                 </span>
-                <em>{STATUS_LABELS[q.status]}</em>
+                <em>
+                  {LEVEL_LABELS[q.level]} · {STATUS_LABELS[q.status]}
+                </em>
               </button>
             ))}
             {!visible.length && (
-              <div className="qb-empty-inline">Chưa có câu hỏi trong phạm vi này.</div>
+              <div className="qb-empty-inline qb-empty-library">
+                {hasFilters ? (
+                  <>
+                    <strong>Không có câu nào khớp bộ lọc</strong>
+                    <span>Thử đổi mức độ, trạng thái hoặc xóa toàn bộ bộ lọc.</span>
+                    <button className="button small secondary" onClick={resetFilters}>
+                      <RotateCcw size={15} /> Xóa bộ lọc
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <strong>Kho câu hỏi đang trống</strong>
+                    <span>
+                      Thêm một câu hoặc nhập file LaTeX theo định dạng ex_test để bắt đầu.
+                    </span>
+                    <div className="qb-empty-actions">
+                      <button className="button small primary" onClick={() => setEditor('new')}>
+                        <Plus size={15} /> Thêm câu đầu tiên
+                      </button>
+                      <button
+                        className="button small secondary"
+                        onClick={() => setTab('curriculum')}
+                      >
+                        Xem cây chương trình
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </section>
-          <section className="panel qb-detail">
-            {selected ? (
-              <>
-                <div className="qb-panel-title">
-                  <div>
-                    <h2>{selected.displayId || 'Câu nháp'}</h2>
-                    <p>{selected.source || 'Không ghi nguồn'}</p>
+          {selected && (
+            <section className="panel qb-detail">
+              {selected ? (
+                <>
+                  <div className="qb-panel-title">
+                    <div>
+                      <h2>{selected.displayId || 'Câu nháp'}</h2>
+                      <p>{selected.source || 'Không ghi nguồn'}</p>
+                    </div>
                   </div>
-                </div>
-                <QuestionPreview source={selected.rawSource} />
-                <dl className="qb-meta">
-                  <div>
-                    <dt>Mức độ</dt>
-                    <dd>{LEVEL_LABELS[selected.level]}</dd>
-                  </div>
-                  <div>
-                    <dt>Trạng thái</dt>
-                    <dd>{STATUS_LABELS[selected.status]}</dd>
-                  </div>
-                  <div>
-                    <dt>Độ tin cậy</dt>
-                    <dd>{selected.confidence == null ? '—' : `${selected.confidence}%`}</dd>
-                  </div>
-                  <div>
-                    <dt>Lượt dùng</dt>
-                    <dd>{selected.usageCount}</dd>
-                  </div>
-                </dl>
-                <div className="qb-detail-actions">
-                  <button className="button primary" onClick={() => setEditor(selected)}>
-                    Chỉnh sửa
-                  </button>
-                  {selected.deletedAt ? (
-                    <button className="button secondary" onClick={() => void restore(selected)}>
-                      <ArchiveRestore size={16} /> Khôi phục
+                  <QuestionPreview source={selected.rawSource} />
+                  <dl className="qb-meta">
+                    <div>
+                      <dt>Mức độ</dt>
+                      <dd>{LEVEL_LABELS[selected.level]}</dd>
+                    </div>
+                    <div>
+                      <dt>Trạng thái</dt>
+                      <dd>{STATUS_LABELS[selected.status]}</dd>
+                    </div>
+                    <div>
+                      <dt>Độ tin cậy</dt>
+                      <dd>{selected.confidence == null ? '—' : `${selected.confidence}%`}</dd>
+                    </div>
+                    <div>
+                      <dt>Lượt dùng</dt>
+                      <dd>{selected.usageCount}</dd>
+                    </div>
+                  </dl>
+                  <div className="qb-detail-actions">
+                    <button className="button primary" onClick={() => setEditor(selected)}>
+                      Chỉnh sửa
                     </button>
-                  ) : (
-                    <button className="button danger" onClick={() => void softDelete(selected)}>
-                      <Trash2 size={16} /> Thùng rác
-                    </button>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="qb-empty-detail">Chọn một câu để xem nội dung và lịch sử.</div>
-            )}
-          </section>
+                    {selected.deletedAt ? (
+                      <button className="button secondary" onClick={() => void restore(selected)}>
+                        <ArchiveRestore size={16} /> Khôi phục
+                      </button>
+                    ) : (
+                      <button className="button danger" onClick={() => void softDelete(selected)}>
+                        <Trash2 size={16} /> Thùng rác
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : null}
+            </section>
+          )}
         </div>
       )}
       {editor && (

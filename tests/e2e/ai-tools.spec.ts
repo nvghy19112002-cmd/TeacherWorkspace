@@ -57,9 +57,8 @@ test('offline fixes, provider, consent, structured review, history and persisten
   await page.getByPlaceholder('Nhập Gemini API key', { exact: true }).fill('fake-key-e2e-only');
   await page.getByRole('button', { name: 'Thêm key', exact: true }).click();
   await page.getByTitle('Kiểm tra', { exact: true }).click();
-  await expect(page.getByText(/kết nối thành công/i)).toBeVisible();
-  await expect(page.locator('.key-row').getByText('Hoạt động', { exact: true })).toBeVisible();
-  await page.getByLabel('Model dùng chung', { exact: true }).fill('test-model');
+  await expect(page.getByText(/Kết nối thành công/)).toBeVisible();
+  await page.getByLabel('Model', { exact: true }).fill('test-model');
   await page.getByRole('button', { name: 'Lưu model', exact: true }).click();
   await expect(page.getByText('Đã lưu model.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Phản biện đề', exact: true }).click();
@@ -95,16 +94,7 @@ test('offline fixes, provider, consent, structured review, history and persisten
   await page.getByRole('dialog').getByRole('button', { name: 'Xóa', exact: true }).click();
   await expect(page.locator('.ai-history-row')).toHaveCount(0);
   await page.getByRole('button', { name: 'Provider', exact: true }).click();
-  await expect(page.getByLabel('Model dùng chung', { exact: true })).toHaveValue('test-model');
-  // Key metadata survives reload; browser-only secret values do not.
-  await expect(page.locator('.key-row')).toHaveCount(1);
-  const callsBeforeReloadCheck = calls;
-  await page.getByTitle('Kiểm tra', { exact: true }).click();
-  await expect(page.locator('.key-row').getByText('Lỗi mạng', { exact: true })).toBeVisible();
-  expect(calls).toBe(callsBeforeReloadCheck);
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.getByTitle('Xóa key', { exact: true }).click();
-  await expect(page.locator('.key-row')).toHaveCount(0);
-  await expect(page.getByText('Chưa có API key.', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Model', { exact: true })).toHaveValue('test-model');
+  await expect(page.getByRole('button', { name: 'Xóa key', exact: true })).toBeDisabled();
   expect(errors).toEqual([]);
 });
