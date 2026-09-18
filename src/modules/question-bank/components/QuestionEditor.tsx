@@ -1,3 +1,4 @@
+import { parseExTest } from '../domain/parser';
 import { useMemo, useState } from 'react';
 import { Modal } from '../../../components/Modal';
 import { useToasts } from '../../../components/feedback';
@@ -101,6 +102,32 @@ export function QuestionEditor({
     setDraft((current) => ({ ...current, ...patch }));
   };
 
+  function readSource() {
+    try {
+      const rows = parseExTest(draft.rawSource);
+      if (rows.length !== 1)
+        throw new Error('Trình sửa chỉ nhận một câu; hãy dùng Nhập .tex cho nhiều câu.');
+      const parsed = rows[0];
+      if (
+        !window.confirm(
+          'Đọc lại loại câu, đáp án và lời giải từ mã LaTeX? Các ô thông tin này sẽ được thay thế trong bản đang sửa.',
+        )
+      )
+        return;
+      setDraft((current) => ({
+        ...current,
+        questionType: parsed.questionType,
+        answer: parsed.answer,
+        solution: parsed.solution,
+        hasImage: parsed.hasImage,
+        warnings: parsed.warnings,
+      }));
+      toast('Đã đọc lại nội dung. Kiểm tra các ô thông tin rồi bấm Lưu câu hỏi.');
+    } catch (error) {
+      toast(errorText(error), 'error');
+    }
+  }
+
   async function save() {
     try {
       if (!draft.rawSource.trim()) throw new Error('Nội dung câu hỏi không được để trống.');
@@ -125,7 +152,7 @@ export function QuestionEditor({
       const saved = questionSchema.parse({
         ...draft,
         displayId,
-        classificationCode,
+        classificationCode: classificationCode || draft.classificationCode,
         sequenceNumber,
         normalizedSource: normalizeQuestionSource(draft.rawSource),
         contentHash: questionHash(draft.rawSource),
@@ -199,6 +226,9 @@ export function QuestionEditor({
                 Xem trước
               </button>
             </div>
+            <button type="button" className="button secondary" disabled={busy} onClick={readSource}>
+              Đọc thông tin từ LaTeX
+            </button>
             {preview ? (
               <QuestionPreview source={draft.rawSource} />
             ) : (

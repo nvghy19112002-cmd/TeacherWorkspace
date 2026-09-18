@@ -4,6 +4,14 @@
 
 Từ V1.4.1, khi chưa bật GitHub auto-update, người dùng tải installer Windows mới rồi vào **Cài đặt → Cập nhật từ file đã tải**. Ứng dụng kiểm tra file, từ chối phiên bản bằng/cũ hơn, sao lưu SQLite, mở installer và tự đóng. Xem chi tiết tại `docs/MANUAL_UPDATE.md`.
 
+## V1.6.0 · Giao diện macOS và hoàn thiện Ngân hàng câu hỏi
+
+V1.6.0 đổi mới giao diện theo phong cách ứng dụng macOS, thu gọn thanh điều hướng và khoảng trống, đồng thời hoàn thiện luồng làm việc ba vùng của **Ngân hàng câu hỏi**. Bản này bổ sung duyệt trước khi nhập `.tex`, đọc ID/đáp án ex_test, khôi phục thùng rác, xem trước nhanh bằng KaTeX, biên dịch TikZ qua TeX Live có sẵn trên máy và quét ID bằng AI ở chế độ đề xuất có duyệt. Xem [bàn giao V1.6.0](docs/HANDOFF_V1.6.0.md).
+
+## V1.5.1 · Phiên làm việc 18/9/2026
+
+Hoàn thiện luồng nhập có kiểm tra trước khi lưu, đọc đáp án ex_test và ID nguồn, bỏ qua bản nhập giống hệt, khôi phục câu trong thùng rác. Xem [bàn giao V1.5.1](docs/HANDOFF_V1.5.1.md). ID nguồn chưa được coi là ID đã duyệt theo cây KNTT.
+
 ## V1.5.0 · Ngân hàng câu hỏi theo quy trình MathHub
 
 V1.5.0 làm lại toàn bộ màn hình **Ngân hàng câu hỏi** thành một không gian làm việc ba vùng: bộ lọc gọn ở trái, bảng câu hỏi ở giữa và xem trước/mã nguồn ở phải. Các công cụ phụ được ẩn khỏi màn hình chính để ưu tiên luồng tìm – chọn – xem – tạo đề; dữ liệu cũ, UUID, mã câu, SQLite và cơ chế cập nhật vẫn được giữ nguyên. Xem [bàn giao V1.5.0](docs/HANDOFF_V1.5.0.md).
@@ -89,7 +97,7 @@ npm run desktop:build -- --config src-tauri/tauri.ci.conf.json
 Kết quả sau **khi build thành công trên Windows x64**:
 
 - Executable: `src-tauri\target\release\teacher-workspace.exe`
-- Installer NSIS: `src-tauri\target\release\bundle\nsis\Teacher Workspace_1.5.0_x64-setup.exe`
+- Installer NSIS: `src-tauri\target\release\bundle\nsis\Teacher Workspace_1.6.0_x64-setup.exe`
 
 Installer thông thường nhúng WebView2 bootstrapper; nếu máy chưa có WebView2, bước cài runtime cần mạng. Để tạo installer chứa cả runtime và cài trên máy hoàn toàn offline:
 

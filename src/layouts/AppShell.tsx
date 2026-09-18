@@ -28,6 +28,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <aside className="sidebar">
+        <div className="mac-window-dots" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
         <div className="brand">
           <div className="brand-mark">
             <span />

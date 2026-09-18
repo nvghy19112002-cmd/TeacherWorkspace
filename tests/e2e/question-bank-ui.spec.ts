@@ -38,7 +38,46 @@ Trong các số sau, số nào là số nguyên tố?
   await expect(page.locator('.qb-preview-choice.correct')).toContainText('7');
   await expect(page.getByText('Đáp án: C', { exact: true })).toBeVisible();
 
+  await page.getByRole('button', { name: 'Quét ID', exact: true }).click();
+  const aiDialog = page.getByRole('dialog', { name: 'Quét ID bằng AI', exact: true });
+  await expect(aiDialog).toBeVisible();
+  await expect(aiDialog.getByText('Chưa chọn', { exact: true })).toBeVisible();
+  await expect(aiDialog.getByRole('button', { name: 'Chạy AI đề xuất' })).toBeDisabled();
+  await aiDialog.getByRole('button', { name: 'Đóng', exact: true }).click();
+
   await page.getByRole('button', { name: 'Xem code', exact: true }).click();
   await expect(page.locator('.qb-source-view')).toContainText('\\begin{ex}');
   expect(errors).toEqual([]);
+});
+
+test('review imports, skip exact repeats and restore a trashed question', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Ngân hàng câu hỏi', exact: true }).click();
+  const raw =
+    '\\begin{ex}%[0D1N1-1]\nCâu kiểm tra nhập\\choiceTF[1t]{\\True A}{B}{\\True C}{D}\\end{ex}';
+  const file = { name: 'nhap.tex', mimeType: 'text/plain', buffer: Buffer.from(raw) };
+  await page.locator('.qb-import-button input').setInputFiles(file);
+  const review = page.getByRole('dialog', { name: 'Kiểm tra trước khi nhập', exact: true });
+  await expect(review).toBeVisible();
+  await expect(page.locator('.qb-question-table tbody tr')).toHaveCount(0);
+  await review.getByRole('button', { name: 'Xác nhận nhập', exact: true }).click();
+  await expect(review).not.toBeVisible();
+  await expect(page.locator('.qb-question-table tbody tr')).toHaveCount(1);
+  await page.locator('.qb-question-table tbody tr').click();
+  await expect(page.locator('.qb-preview-choice')).toHaveCount(4);
+  await expect(page.locator('.qb-preview-answer')).toContainText('Đ – S – Đ – S');
+  await page.locator('.qb-import-button input').setInputFiles(file);
+  await expect(review.getByRole('button', { name: 'Xác nhận nhập' })).toBeDisabled();
+  await review.getByRole('button', { name: 'Hủy nhập' }).click();
+  await page.locator('.qb-question-table tbody input[type="checkbox"]').check();
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByRole('button', { name: 'Xóa', exact: true }).click();
+  await expect(page.locator('.qb-question-table tbody tr')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Thùng rác (1)', exact: true }).click();
+  const trash = page.getByRole('dialog', { name: 'Thùng rác câu hỏi', exact: true });
+  await trash.getByRole('button', { name: 'Khôi phục', exact: true }).click();
+  await expect(trash.getByText('Thùng rác trống.', { exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'Ngân hàng câu hỏi', exact: true }).click();
+  await expect(page.locator('.qb-question-table tbody tr')).toHaveCount(1);
 });

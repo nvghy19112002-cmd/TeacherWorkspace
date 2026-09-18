@@ -1,3 +1,6 @@
+import { AiIdScan } from './components/AiIdScan';
+import { TexLivePreview } from './components/TexLivePreview';
+import { uniqueImports } from './domain/importReview';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ChevronLeft,
@@ -15,6 +18,8 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Sparkles,
+  Play,
   Trash2,
   X,
 } from 'lucide-react';
@@ -58,6 +63,7 @@ function exactDuplicateCandidates(questions: Question[]): DuplicateCandidate[] {
 
 export default function QuestionBankPage() {
   const data = useQuestionBank((state) => state.data);
+  const loadError = useQuestionBank((state) => state.error);
   const ready = useQuestionBank((state) => state.ready);
   const busy = useQuestionBank((state) => state.busy);
   const selectedId = useQuestionBank((state) => state.selectedId);
@@ -66,6 +72,13 @@ export default function QuestionBankPage() {
   const select = useQuestionBank((state) => state.select);
   const toast = useToasts((state) => state.push);
 
+  const [aiQuestions, setAiQuestions] = useState<Question[] | null>(null);
+  const [texSource, setTexSource] = useState<string | null>(null);
+  const [pendingImport, setPendingImport] = useState<Question[] | null>(null);
+  const [skipIdentical, setSkipIdentical] = useState(true);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashPage, setTrashPage] = useState(1);
+  const [readingFiles, setReadingFiles] = useState(false);
   const [idQuery, setIdQuery] = useState('');
   const [contentQuery, setContentQuery] = useState('');
   const [level, setLevel] = useState('');
@@ -126,7 +139,10 @@ export default function QuestionBankPage() {
         const idNeedle = idQuery.trim().toLocaleLowerCase('vi');
         const contentNeedle = contentQuery.trim().toLocaleLowerCase('vi');
         return (
-          (!idNeedle || question.displayId.toLocaleLowerCase('vi').includes(idNeedle)) &&
+          (!idNeedle ||
+            `${question.displayId} ${question.classificationCode}`
+              .toLocaleLowerCase('vi')
+              .includes(idNeedle)) &&
           (!contentNeedle ||
             `${question.rawSource} ${question.tags.join(' ')} ${question.source}`
               .toLocaleLowerCase('vi')
@@ -199,6 +215,7 @@ export default function QuestionBankPage() {
 
   async function importFiles(files: FileList | null) {
     if (!files?.length) return;
+    setReadingFiles(true);
     try {
       const imported: Question[] = [];
       for (const file of Array.from(files)) {
@@ -209,11 +226,66 @@ export default function QuestionBankPage() {
           ...parseExTest(await file.text()).map((item) => parsedToQuestion(item, file.name)),
         );
       }
+      if (!imported.length) {
+        toast('Không tìm thấy câu hỏi trong file.', 'error');
+        return;
+      }
+      setSkipIdentical(true);
+      setPendingImport(imported);
+    } catch (error) {
+      toast(errorText(error), 'error');
+    } finally {
+      setReadingFiles(false);
+    }
+  }
+
+  const importReview = useMemo(
+    () => uniqueImports(pendingImport ?? [], data.questions),
+    [pendingImport, data.questions],
+  );
+  const trash = useMemo(
+    () => data.questions.filter((question) => question.deletedAt),
+    [data.questions],
+  );
+  const safeTrashPage = Math.min(trashPage, Math.max(1, Math.ceil(trash.length / PAGE_SIZE)));
+
+  async function confirmImport() {
+    if (!pendingImport) return;
+    try {
+      let count = 0;
+      await commit((snapshot) => {
+        const rows = skipIdentical
+          ? uniqueImports(pendingImport, snapshot.questions).questions
+          : pendingImport;
+        count = rows.length;
+        return { ...snapshot, questions: [...snapshot.questions, ...rows] };
+      });
+      setPendingImport(null);
+      toast(`Đã lưu ${count} câu. Câu trùng trong thùng rác có thể khôi phục từ nút Thùng rác.`);
+    } catch (error) {
+      toast(errorText(error), 'error');
+    }
+  }
+
+  async function restoreQuestion(id: string) {
+    try {
       await commit((snapshot) => ({
         ...snapshot,
-        questions: [...snapshot.questions, ...imported],
+        questions: snapshot.questions.map((question) =>
+          question.id === id
+            ? { ...question, deletedAt: null, updatedAt: new Date().toISOString() }
+            : question,
+        ),
       }));
-      toast(`Đã nhập ${imported.length} câu vào ngân hàng.`);
+      toast('Đã khôi phục câu hỏi, giữ nguyên ID và lịch sử.');
+    } catch (error) {
+      toast(errorText(error), 'error');
+    }
+  }
+
+  async function reportAction(action: () => Promise<unknown>) {
+    try {
+      await action();
     } catch (error) {
       toast(errorText(error), 'error');
     }
@@ -286,6 +358,16 @@ export default function QuestionBankPage() {
     setDuplicates(rows);
   }
 
+  if (!ready && loadError)
+    return (
+      <div className="page-loading" role="alert">
+        <p>Không mở được ngân hàng: {loadError}</p>
+        <button className="button secondary" onClick={() => void initialize()}>
+          Thử lại
+        </button>
+      </div>
+    );
+
   if (!ready)
     return (
       <div className="page-loading">
@@ -305,6 +387,15 @@ export default function QuestionBankPage() {
           {checked.length > 0 && (
             <div className="qb-selection-tools" aria-label="Thao tác với câu đã chọn">
               <strong>{checked.length} đã chọn</strong>
+              <button
+                onClick={() =>
+                  setAiQuestions(
+                    data.questions.filter((q) => !q.deletedAt && checked.includes(q.id)),
+                  )
+                }
+              >
+                <Sparkles size={15} /> Quét ID bằng AI
+              </button>
               <button onClick={() => setChecked([])}>
                 <X size={15} /> Bỏ chọn
               </button>
@@ -319,14 +410,26 @@ export default function QuestionBankPage() {
               >
                 <Eye size={15} /> Xem trước
               </button>
-              <button className="accent" onClick={() => void buildExamFromSelection()}>
+              <button className="accent" onClick={() => void reportAction(buildExamFromSelection)}>
                 <FileOutput size={15} /> Tạo đề
               </button>
-              <button className="danger" onClick={() => void moveToTrash(checked)}>
+              <button
+                className="danger"
+                onClick={() => void reportAction(() => moveToTrash(checked))}
+              >
                 <Trash2 size={15} /> Xóa
               </button>
             </div>
           )}
+          <button
+            disabled={busy}
+            onClick={() => {
+              setTrashPage(1);
+              setTrashOpen(true);
+            }}
+          >
+            <Trash2 size={16} /> Thùng rác ({trash.length})
+          </button>
           <button className="qb-duplicate-button" onClick={scanDuplicates}>
             <CopyCheck size={16} /> Quét trùng
           </button>
@@ -337,7 +440,12 @@ export default function QuestionBankPage() {
               multiple
               type="file"
               accept=".tex,.txt"
-              onChange={(event) => void importFiles(event.target.files)}
+              disabled={busy || readingFiles}
+              onChange={(event) => {
+                const files = event.target.files;
+                void importFiles(files);
+                event.target.value = '';
+              }}
             />
           </label>
           <button className="button primary" onClick={() => setEditor('new')}>
@@ -528,7 +636,10 @@ export default function QuestionBankPage() {
                       className="id-cell"
                       title={curriculumPath(data, question.formNodeId || question.lessonNodeId)}
                     >
-                      {question.displayId || 'CHƯA CÓ ID'}
+                      {question.displayId ||
+                        (question.classificationCode
+                          ? `${question.classificationCode} · nguồn`
+                          : 'CHƯA CÓ ID')}
                     </td>
                     <td>
                       <span className={`qb-badge level-${question.level.toLowerCase()}`}>
@@ -575,10 +686,19 @@ export default function QuestionBankPage() {
                   </button>
                 </div>
                 <div className="qb-detail-buttons">
+                  <button onClick={() => setAiQuestions([selected])}>
+                    <Sparkles size={14} /> Quét ID
+                  </button>
+                  <button onClick={() => setTexSource(selected.rawSource)}>
+                    <Play size={14} /> Biên dịch
+                  </button>
                   <button onClick={() => setEditor(selected)}>
                     <Pencil size={14} /> Sửa
                   </button>
-                  <button className="danger" onClick={() => void moveToTrash([selected.id])}>
+                  <button
+                    className="danger"
+                    onClick={() => void reportAction(() => moveToTrash([selected.id]))}
+                  >
                     <Trash2 size={14} /> Xóa
                   </button>
                   <button className="copy" onClick={() => void copyQuestions([selected.id])}>
@@ -587,7 +707,12 @@ export default function QuestionBankPage() {
                 </div>
               </div>
               <div className="qb-detail-identity">
-                <strong>{selected.displayId || 'Câu chưa có ID'}</strong>
+                <strong>
+                  {selected.displayId ||
+                    (selected.classificationCode
+                      ? `${selected.classificationCode} · ID nguồn chưa duyệt`
+                      : 'Câu chưa có ID')}
+                </strong>
                 <span>{selected.source || 'Không ghi nguồn'}</span>
               </div>
               <div className="qb-detail-meta-row">
@@ -614,6 +739,14 @@ export default function QuestionBankPage() {
                   A+ <b>{zoom}%</b>
                 </label>
               </div>
+              {selected.warnings.length > 0 && (
+                <details className="qb-question-warnings">
+                  <summary>Cần kiểm tra ({selected.warnings.length})</summary>
+                  {selected.warnings.map((warning) => (
+                    <p key={warning}>{warning}</p>
+                  ))}
+                </details>
+              )}
               <div className="qb-detail-content" style={{ fontSize: `${zoom}%` }}>
                 {detailTab === 'preview' ? (
                   <QuestionPreview
@@ -642,6 +775,109 @@ export default function QuestionBankPage() {
         <span className="backend-ok">Backend: OK</span>
       </footer>
 
+      {aiQuestions && <AiIdScan questions={aiQuestions} onClose={() => setAiQuestions(null)} />}
+      {texSource !== null && (
+        <TexLivePreview source={texSource} onClose={() => setTexSource(null)} />
+      )}
+      {pendingImport && (
+        <Modal
+          title="Kiểm tra trước khi nhập"
+          subtitle="Giữ nguyên mã LaTeX nguồn. ID đọc được chưa tự gán sang cây KNTT."
+          onClose={() => !busy && setPendingImport(null)}
+          wide
+        >
+          <div className="modal-body">
+            <p>
+              {pendingImport.length} câu ·{' '}
+              {pendingImport.filter((q) => q.classificationCode).length} có ID nguồn ·{' '}
+              {pendingImport.filter((q) => q.warnings.length).length} cần xem lại.
+            </p>
+            <label>
+              <input
+                type="checkbox"
+                checked={skipIdentical}
+                disabled={busy}
+                onChange={(e) => setSkipIdentical(e.target.checked)}
+              />{' '}
+              Bỏ qua {importReview.skipped} câu có mã LaTeX giống hệt (kể cả trong thùng rác).
+            </label>
+            <p>
+              Sẽ lưu {skipIdentical ? importReview.questions.length : pendingImport.length} câu.
+              Hiển thị tối đa 50 câu đầu bên dưới.
+            </p>
+            <div className="qb-import-review">
+              {pendingImport.slice(0, 50).map((q, i) => (
+                <div key={q.id}>
+                  <strong>
+                    {i + 1}. {q.classificationCode || 'Chưa có ID'} ·{' '}
+                    {QUESTION_TYPE_LABELS[q.questionType]}
+                  </strong>
+                  <small>
+                    {q.source} · Đáp án: {q.answer || 'Chưa nhận diện'}
+                  </small>
+                  {q.warnings.map((warning) => (
+                    <p key={warning}>{warning}</p>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button
+              className="button secondary"
+              disabled={busy}
+              onClick={() => setPendingImport(null)}
+            >
+              Hủy nhập
+            </button>
+            <button
+              className="button primary"
+              disabled={busy || (skipIdentical && !importReview.questions.length)}
+              onClick={() => void confirmImport()}
+            >
+              Xác nhận nhập
+            </button>
+          </div>
+        </Modal>
+      )}
+      {trashOpen && (
+        <Modal
+          title="Thùng rác câu hỏi"
+          subtitle={`${trash.length} câu có thể khôi phục; không xóa vĩnh viễn.`}
+          onClose={() => setTrashOpen(false)}
+          wide
+        >
+          <div className="modal-body qb-import-review">
+            {trash.slice((safeTrashPage - 1) * PAGE_SIZE, safeTrashPage * PAGE_SIZE).map((q) => (
+              <div key={q.id}>
+                <strong>{q.displayId || q.classificationCode || 'Câu chưa có ID'}</strong>
+                <small>{q.source}</small>
+                <p>{q.rawSource.slice(0, 180)}</p>
+                <button
+                  className="button secondary"
+                  disabled={busy}
+                  onClick={() => void restoreQuestion(q.id)}
+                >
+                  Khôi phục
+                </button>
+              </div>
+            ))}
+            {!trash.length && <p>Thùng rác trống.</p>}
+          </div>
+          <div className="modal-footer">
+            <button disabled={safeTrashPage <= 1} onClick={() => setTrashPage(safeTrashPage - 1)}>
+              Trang trước
+            </button>
+            <span>Trang {safeTrashPage}</span>
+            <button
+              disabled={safeTrashPage * PAGE_SIZE >= trash.length}
+              onClick={() => setTrashPage(safeTrashPage + 1)}
+            >
+              Trang sau
+            </button>
+          </div>
+        </Modal>
+      )}
       {editor && (
         <QuestionEditor
           question={editor === 'new' ? undefined : editor}
@@ -659,7 +895,9 @@ export default function QuestionBankPage() {
           }}
         />
       )}
-      {busy && <div className="qb-saving">Đang lưu…</div>}
+      {(busy || readingFiles) && (
+        <div className="qb-saving">{busy ? 'Đang lưu…' : 'Đang đọc file…'}</div>
+      )}
     </div>
   );
 }

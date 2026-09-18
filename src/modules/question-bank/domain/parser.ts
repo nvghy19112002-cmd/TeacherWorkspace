@@ -1,30 +1,16 @@
+import { commandBlock, maskComments, parseChoices } from './latex';
+import { parseClassificationCode, splitDisplayId } from './ids';
 import { questionHash, normalizeQuestionSource } from './normalize';
 import type { Question } from './model';
 
 export interface ParsedQuestion {
   rawSource: string;
+  sourceId?: string;
   questionType: Question['questionType'];
   answer: string;
   solution: string;
   hasImage: boolean;
   warnings: string[];
-}
-
-function block(source: string, command: string): string {
-  const marker = new RegExp(`\\\\${command}(?:\\[[^\\]]*\\])?\\s*\\{`, 'g');
-  const match = marker.exec(source);
-  const start = match?.index ?? -1;
-  if (start < 0) return '';
-  let depth = 0;
-  const contentStart = start + (match?.[0].length ?? 0);
-  for (let index = contentStart; index < source.length; index += 1) {
-    if (source[index] === '{' && source[index - 1] !== '\\') depth += 1;
-    if (source[index] === '}' && source[index - 1] !== '\\') {
-      if (depth === 0) return source.slice(contentStart, index).trim();
-      depth -= 1;
-    }
-  }
-  return '';
 }
 
 export function detectQuestionType(source: string): Question['questionType'] {
@@ -36,19 +22,53 @@ export function detectQuestionType(source: string): Question['questionType'] {
 }
 
 export function parseExTest(source: string): ParsedQuestion[] {
-  const matches = [...source.matchAll(/\\begin\{ex\}(?:\[[^\]]*\])?([\s\S]*?)\\end\{ex\}/g)];
-  const chunks = matches.length ? matches.map((match) => match[0]) : source.trim() ? [source] : [];
+  const masked = maskComments(source);
+  const matches = [...masked.matchAll(/\\begin\{ex\}(?:\[[^\]]*\])?([\s\S]*?)\\end\{ex\}/g)];
+  if ((masked.match(/\\begin\{ex\}/g) ?? []).length !== matches.length)
+    throw new Error(
+      'Có môi trường ex chưa đóng hoặc lồng nhau. Hãy sửa file trước khi nhập để tránh bỏ sót câu.',
+    );
+  const chunks = matches.length
+    ? matches.map((match) => source.slice(match.index, match.index + match[0].length))
+    : source.trim()
+      ? [source]
+      : [];
   return chunks.map((rawSource) => {
-    const answer = block(rawSource, 'shortans');
-    const solution = block(rawSource, 'loigiai');
+    const clean = maskComments(rawSource);
+    const questionType = detectQuestionType(clean);
+    const choices = parseChoices(clean);
+    const answer =
+      commandBlock(clean, 'shortans') ||
+      (questionType === 'true_false'
+        ? choices.map((choice) => (choice.correct ? 'Đ' : 'S')).join(' – ')
+        : choices
+            .flatMap((choice, index) => (choice.correct ? [String.fromCharCode(65 + index)] : []))
+            .join(', '));
+    const solution = commandBlock(clean, 'loigiai');
+    const header = rawSource.split(/\\choice|\\shortans|\\loigiai/)[0];
+    const ids = [...header.matchAll(/\[([0-9A-Z]+[A-Z]\d+[NHVC]\d+-\d+(?:-\d{3,})?)\]/g)].map(
+      (match) => match[1],
+    );
+    const sourceId = ids.find((id) => parseClassificationCode(id) || splitDisplayId(id));
     const warnings: string[] = [];
     if (!/\\end\{ex\}/.test(rawSource) && /\\begin\{ex\}/.test(rawSource))
       warnings.push('Môi trường ex chưa đóng.');
+    if (
+      (questionType === 'multiple_choice' || questionType === 'true_false') &&
+      choices.length !== 4
+    )
+      warnings.push('Chưa đọc đủ 4 phương án; cần kiểm tra mã LaTeX.');
+    if (
+      questionType === 'multiple_choice' &&
+      choices.filter((choice) => choice.correct).length !== 1
+    )
+      warnings.push('Câu trắc nghiệm cần đúng một phương án được đánh dấu \\True.');
     if (!answer && !solution && !/\\True\b/.test(rawSource))
       warnings.push('Chưa nhận diện được đáp án hoặc lời giải.');
     return {
       rawSource,
-      questionType: detectQuestionType(rawSource),
+      sourceId,
+      questionType,
       answer,
       solution,
       hasImage: /\\includegraphics|\\begin\{tikzpicture\}|\\begin\{axis\}/.test(rawSource),
@@ -62,7 +82,9 @@ export function parsedToQuestion(value: ParsedQuestion, source = ''): Question {
   return {
     id: crypto.randomUUID(),
     displayId: '',
-    classificationCode: '',
+    classificationCode: value.sourceId
+      ? (splitDisplayId(value.sourceId)?.classificationCode ?? value.sourceId)
+      : '',
     sequenceNumber: null,
     rawSource: value.rawSource,
     normalizedSource: normalizeQuestionSource(value.rawSource),
@@ -70,7 +92,12 @@ export function parsedToQuestion(value: ParsedQuestion, source = ''): Question {
     questionType: value.questionType,
     answer: value.answer,
     solution: value.solution,
-    level: 'N',
+    level:
+      parseClassificationCode(
+        value.sourceId
+          ? (splitDisplayId(value.sourceId)?.classificationCode ?? value.sourceId)
+          : '',
+      )?.level ?? 'N',
     gradeNodeId: null,
     domainNodeId: null,
     chapterNodeId: null,
@@ -83,7 +110,12 @@ export function parsedToQuestion(value: ParsedQuestion, source = ''): Question {
     status: 'draft',
     confidence: null,
     reasoning: '',
-    warnings: value.warnings,
+    warnings: [
+      ...value.warnings,
+      ...(value.sourceId
+        ? [`ID trong file nguồn: ${value.sourceId}. Chưa đối chiếu cây chương trình.`]
+        : []),
+    ],
     hasImage: value.hasImage,
     usageCount: 0,
     idLocked: false,

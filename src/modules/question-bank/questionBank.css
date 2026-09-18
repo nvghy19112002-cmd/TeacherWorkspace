@@ -3,8 +3,8 @@
 }
 
 .qb-mathhub-layout {
-  height: calc(100vh - 126px);
-  min-height: 610px;
+  height: 100%;
+  min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) 28px;
   overflow: hidden;
@@ -15,12 +15,12 @@
 }
 
 .qb-command-header {
-  min-height: 72px;
+  min-height: 54px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  padding: 11px 15px 10px;
+  gap: 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 96%, var(--accent) 4%);
 }
@@ -42,7 +42,7 @@
 }
 
 .qb-title-block h1 {
-  font-size: 22px;
+  font-size: 19px;
   letter-spacing: -0.55px;
   line-height: 1.15;
 }
@@ -139,7 +139,7 @@
 .qb-mathhub-shell {
   min-height: 0;
   display: grid;
-  grid-template-columns: 210px minmax(430px, 0.9fr) minmax(420px, 1.1fr);
+  grid-template-columns: 180px minmax(0, 0.95fr) minmax(0, 1.2fr);
   background: var(--bg);
 }
 
@@ -207,6 +207,7 @@
 }
 
 .qb-bank-main {
+  overflow: hidden;
   display: grid;
   grid-template-rows: auto 34px minmax(0, 1fr);
   border-right: 1px solid var(--border);
@@ -214,7 +215,7 @@
 
 .qb-search-row {
   display: grid;
-  grid-template-columns: minmax(150px, 0.7fr) minmax(200px, 1.6fr) 86px;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
   gap: 7px;
   padding: 10px 10px 5px;
 }
@@ -285,6 +286,7 @@
 }
 
 .qb-question-table {
+  min-width: 480px;
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
@@ -433,12 +435,14 @@
 }
 
 .qb-question-detail {
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
 .qb-detail-toolbar {
+  flex-wrap: wrap;
+  flex-shrink: 0;
   min-height: 45px;
   display: flex;
   align-items: center;
@@ -515,6 +519,8 @@
 }
 
 .qb-detail-content {
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   padding: 17px 19px;
@@ -731,79 +737,343 @@
   font-size: 12px;
 }
 
-@media (max-width: 1360px) {
-  .qb-mathhub-shell {
-    grid-template-columns: 190px minmax(390px, 0.95fr) minmax(360px, 1.05fr);
-  }
-
-  .qb-selection-tools button {
-    padding-inline: 6px;
-  }
-
-  .qb-question-table th:nth-child(5),
-  .qb-question-table td:nth-child(5) {
-    width: 82px;
-  }
+/* Size against the actual workspace, including the application's sidebar. */
+.main-shell:has(.qb-mathhub-layout) {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
-
-@media (max-width: 1120px) {
+.main-shell:has(.qb-mathhub-layout) > .topbar {
+  height: 44px;
+  min-height: 44px;
+  padding-inline: 12px;
+  flex: 0 0 auto;
+}
+.main-content:has(.qb-mathhub-layout) {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 8px 10px 10px;
+  container-type: inline-size;
+  container-name: question-workspace;
+}
+.qb-search-mode {
+  display: none;
+}
+.qb-mathhub-shell {
+  min-width: 0;
+  overflow: hidden;
+}
+.qb-table-wrap {
+  min-width: 0;
+  isolation: isolate;
+}
+.qb-command-header {
+  flex-wrap: wrap;
+}
+.qb-selection-tools {
+  flex-wrap: wrap;
+}
+.qb-detail-identity,
+.qb-detail-meta-row {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.qb-detail-content .qb-preview {
+  overflow-wrap: anywhere;
+}
+.qb-preview-choices {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.qb-preview .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.qb-question-warnings {
+  flex-shrink: 0;
+  max-height: 120px;
+  overflow: auto;
+}
+.qb-statusbar {
+  background: var(--soft);
+  color: var(--muted);
+  overflow: auto;
+  white-space: nowrap;
+}
+@container question-workspace (max-width: 920px) {
   .qb-mathhub-layout {
-    height: auto;
-    min-height: 720px;
-    overflow: visible;
-  }
-
-  .qb-command-header {
-    align-items: flex-start;
-  }
-
-  .qb-mathhub-shell {
-    grid-template-columns: 190px minmax(0, 1fr);
-  }
-
-  .qb-question-detail {
-    grid-column: 1 / -1;
-    min-height: 460px;
-    border-top: 1px solid var(--border);
-  }
-
-  .qb-bank-main {
-    border-right: 0;
-    min-height: 560px;
-  }
-}
-
-@media (max-width: 820px) {
-  .qb-command-header,
-  .qb-command-actions {
-    align-items: stretch;
+    overflow-y: auto;
+    display: flex;
     flex-direction: column;
   }
-
-  .qb-selection-tools {
-    overflow-x: auto;
-    border-right: 0;
-  }
-
   .qb-mathhub-shell {
-    grid-template-columns: 1fr;
+    flex: 0 0 auto;
+    grid-template-columns: 170px minmax(0, 1fr);
+    overflow: visible;
   }
-
-  .qb-mathhub-filters {
-    grid-template-columns: 1fr 1fr;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
+  .qb-mathhub-filters,
+  .qb-bank-main {
+    height: 440px;
   }
-
-  .qb-search-row {
-    grid-template-columns: 1fr;
+  .qb-question-detail {
+    grid-column: 1 / -1;
+    height: 500px;
+    border-top: 1px solid var(--border);
   }
-
-  .qb-search-mode {
-    display: none;
+  .qb-command-header,
+  .qb-statusbar {
+    flex-shrink: 0;
   }
-
   .qb-editor-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
+}
+@container question-workspace (max-width: 560px) {
+  .qb-mathhub-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .qb-mathhub-filters {
+    height: 210px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .qb-command-actions {
+    justify-content: flex-start;
+  }
+  .qb-preview-choices {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.qb-import-review {
+  max-height: 48vh;
+  overflow: auto;
+}
+.qb-import-review > div {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.qb-import-review small {
+  display: block;
+  margin: 6px 0;
+}
+.qb-import-review p,
+.qb-question-warnings p {
+  overflow-wrap: anywhere;
+}
+.qb-question-warnings {
+  padding: 8px 14px;
+  font-size: 12px;
+}
+
+.qb-tex-live {
+  max-height: 72vh;
+  overflow: auto;
+}
+.qb-tex-path {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  margin: 8px 0;
+}
+.qb-tex-path .field {
+  flex: 1;
+  min-width: 0;
+}
+.qb-tex-pdf {
+  width: 100%;
+  height: 55vh;
+  border: 1px solid var(--border);
+  background: white;
+}
+.qb-tex-log,
+.qb-tex-error-source {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.qb-tex-error-source .error-line {
+  background: #ffd2cb;
+  color: #571006;
+  display: block;
+}
+
+.qb-ai-scan {
+  max-height: 64vh;
+  overflow: auto;
+}
+.qb-ai-result {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.qb-detail-buttons {
+  flex-wrap: wrap;
+}
+
+/* V1.6 question workspace skin. */
+.qb-mathhub-layout {
+  border-color: var(--border);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--bg));
+  box-shadow:
+    0 12px 35px #10182712,
+    0 1px 2px #10182714;
+}
+
+.qb-command-header {
+  min-height: 52px;
+  padding: 7px 10px 7px 13px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--soft));
+}
+
+.qb-title-block > span {
+  color: var(--muted);
+  letter-spacing: 0.13em;
+}
+.qb-title-block h1 {
+  font-size: 18px;
+  font-weight: 680;
+  letter-spacing: -0.45px;
+}
+.qb-command-actions .button,
+.qb-selection-tools button,
+.qb-duplicate-button,
+.qb-detail-buttons button,
+.qb-detail-tabs button {
+  border-radius: 8px;
+  font-weight: 620;
+}
+
+.qb-command-actions .button.primary {
+  color: white;
+}
+.qb-duplicate-button {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: var(--accent-soft);
+}
+.qb-mathhub-shell {
+  background: var(--surface);
+}
+.qb-mathhub-filters {
+  padding: 10px;
+  gap: 7px;
+  background: color-mix(in srgb, var(--soft) 72%, var(--surface));
+}
+.qb-filter-field > span {
+  font-size: 8px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+}
+.qb-filter-field select {
+  background: color-mix(in srgb, var(--surface) 88%, var(--soft));
+  border-radius: 8px;
+}
+.qb-reset-button {
+  border-radius: 8px;
+}
+.qb-search-row {
+  background: color-mix(in srgb, var(--surface) 92%, var(--soft));
+}
+.qb-search-row label {
+  border-radius: 8px;
+  background: var(--soft);
+}
+.qb-page-controls {
+  background: color-mix(in srgb, var(--surface) 90%, var(--soft));
+}
+
+.qb-question-table th {
+  background: color-mix(in srgb, var(--soft) 90%, var(--surface));
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.qb-question-table tbody tr {
+  transition:
+    background 100ms ease,
+    box-shadow 100ms ease;
+}
+.qb-question-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.qb-question-table tbody tr.active {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  box-shadow: inset 3px 0 var(--accent);
+}
+
+.qb-badge {
+  border-radius: 999px;
+  font-weight: 620;
+}
+.qb-question-detail {
+  background: color-mix(in srgb, var(--surface) 97%, var(--soft));
+}
+.qb-detail-toolbar {
+  min-height: 42px;
+  background: color-mix(in srgb, var(--soft) 64%, var(--surface));
+}
+.qb-detail-tabs {
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--border) 45%, transparent);
+}
+.qb-detail-tabs button {
+  min-height: 27px;
+  border: 0;
+  border-radius: 7px;
+}
+.qb-detail-tabs button.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px #00000018;
+}
+.qb-detail-content {
+  padding: 17px 20px;
+  background: var(--surface);
+}
+.qb-preview-choice {
+  border-color: var(--border);
+  border-radius: 10px;
+  background: var(--soft);
+}
+.qb-preview-choice.correct {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  color: var(--text);
+}
+.qb-preview-answer {
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.qb-statusbar {
+  height: 26px;
+  background: color-mix(in srgb, var(--soft) 82%, var(--surface));
+  border-top: 1px solid var(--border);
+}
+.qb-statusbar .backend-ok {
+  color: #2f9e64;
+}
+.qb-saving {
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 93%, transparent);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+}
+.qb-ai-result {
+  padding: 11px;
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--soft);
+}
+.qb-tex-pdf {
+  border-radius: 10px;
 }
