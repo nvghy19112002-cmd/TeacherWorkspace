@@ -93,8 +93,8 @@ test('image export, dark/print rendering, backup and workspace duplication', asy
   await page.screenshot({ path: 'docs/screenshots/calendar-light.png', fullPage: true });
   await page.getByRole('button', { name: 'Đổi giao diện sáng/tối' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(19, 32, 29)');
-  await expect(page.locator('body')).toHaveCSS('color', 'rgb(230, 238, 234)');
+  await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(23, 25, 29)');
+  await expect(page.locator('body')).toHaveCSS('color', 'rgb(242, 243, 245)');
   while (await page.getByRole('button', { name: 'Đóng thông báo' }).count())
     await page.getByRole('button', { name: 'Đóng thông báo' }).first().click();
   await page.getByRole('heading', { name: 'Một tuần thật chủ động.' }).click();

@@ -43,7 +43,10 @@ Trong các số sau, số nào là số nguyên tố?
   await expect(aiDialog).toBeVisible();
   await expect(aiDialog.getByText('Chưa chọn', { exact: true })).toBeVisible();
   await expect(aiDialog.getByRole('button', { name: 'Chạy AI đề xuất' })).toBeDisabled();
-  await aiDialog.getByRole('button', { name: 'Đóng', exact: true }).click();
+  await aiDialog
+    .locator('.modal-footer')
+    .getByRole('button', { name: 'Đóng', exact: true })
+    .click();
 
   await page.getByRole('button', { name: 'Xem code', exact: true }).click();
   await expect(page.locator('.qb-source-view')).toContainText('\\begin{ex}');
@@ -71,7 +74,10 @@ test('review imports, skip exact repeats and restore a trashed question', async 
   await review.getByRole('button', { name: 'Hủy nhập' }).click();
   await page.locator('.qb-question-table tbody input[type="checkbox"]').check();
   page.once('dialog', (dialog) => void dialog.accept());
-  await page.getByRole('button', { name: 'Xóa', exact: true }).click();
+  await page
+    .getByLabel('Thao tác với câu đã chọn')
+    .getByRole('button', { name: 'Xóa', exact: true })
+    .click();
   await expect(page.locator('.qb-question-table tbody tr')).toHaveCount(0);
   await page.getByRole('button', { name: 'Thùng rác (1)', exact: true }).click();
   const trash = page.getByRole('dialog', { name: 'Thùng rác câu hỏi', exact: true });
