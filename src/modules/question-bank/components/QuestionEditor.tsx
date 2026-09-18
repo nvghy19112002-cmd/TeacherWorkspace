@@ -204,6 +204,7 @@ export function QuestionEditor({
             ) : (
               <textarea
                 className="qb-source-editor"
+                aria-label="Mã LaTeX"
                 spellCheck={false}
                 value={draft.rawSource}
                 onChange={(event) => setDraft({ ...draft, rawSource: event.target.value })}

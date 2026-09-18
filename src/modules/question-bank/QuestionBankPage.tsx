@@ -1,124 +1,107 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  ArchiveRestore,
-  Bot,
-  Check,
+  ChevronLeft,
+  ChevronRight,
+  Code2,
+  Copy,
   CopyCheck,
-  Download,
+  Eye,
+  FileOutput,
   FilePlus2,
-  FolderTree,
+  ImageIcon,
   ListChecks,
   LoaderCircle,
+  Pencil,
   Plus,
   RotateCcw,
   Search,
-  SlidersHorizontal,
   Trash2,
   X,
 } from 'lucide-react';
 import { errorText } from '../../app/store';
+import { Modal } from '../../components/Modal';
 import { useToasts } from '../../components/feedback';
 import { saveFile } from '../../services/files';
-import { CurriculumManager } from './components/CurriculumManager';
 import { QuestionEditor } from './components/QuestionEditor';
 import { QuestionPreview } from './components/QuestionPreview';
-import { classifyQuestionOnline } from './services/classificationProvider';
-import { findDuplicateCandidates } from './domain/duplicates';
-import { chooseByMatrix, createExam, examToLatex } from './domain/exams';
-import { parsedToQuestion, parseExTest } from './domain/parser';
+import { curriculumPath } from './domain/curriculum';
+import { findDuplicateCandidates, type DuplicateCandidate } from './domain/duplicates';
+import { createExam, examToLatex } from './domain/exams';
 import {
   LEVEL_LABELS,
   QUESTION_TYPE_LABELS,
-  STATUS_LABELS,
-  type ClassificationRun,
+  type BankSnapshot,
   type Question,
 } from './domain/model';
-import { curriculumPath } from './domain/curriculum';
+import { parsedToQuestion, parseExTest } from './domain/parser';
 import { useQuestionBank } from './store';
 import './questionBank.css';
 
-type Tab = 'library' | 'curriculum' | 'duplicates' | 'ai' | 'exams' | 'trash';
-
-const TABS: Array<[Tab, string]> = [
-  ['library', 'Kho câu hỏi'],
-  ['curriculum', 'Cây chương trình'],
-  ['duplicates', 'Quét trùng'],
-  ['ai', 'AI phân loại'],
-  ['exams', 'Tạo đề'],
-  ['trash', 'Thùng rác'],
-];
+const PAGE_SIZE = 50;
 
 function downloadText(name: string, text: string, mime = 'application/x-tex') {
   return saveFile(name, new TextEncoder().encode(text), mime);
 }
 
+function exactDuplicateCandidates(questions: Question[]): DuplicateCandidate[] {
+  const groups = new Map<string, Question[]>();
+  const output: DuplicateCandidate[] = [];
+  for (const question of questions) {
+    const group = groups.get(question.contentHash) ?? [];
+    for (const previous of group)
+      output.push({ left: previous, right: question, score: 100, method: 'hash' });
+    group.push(question);
+    groups.set(question.contentHash, group);
+  }
+  return output;
+}
+
 export default function QuestionBankPage() {
-  const data = useQuestionBank((s) => s.data);
-  const ready = useQuestionBank((s) => s.ready);
-  const busy = useQuestionBank((s) => s.busy);
-  const selectedId = useQuestionBank((s) => s.selectedId);
-  const initialize = useQuestionBank((s) => s.initialize);
-  const commit = useQuestionBank((s) => s.commit);
-  const select = useQuestionBank((s) => s.select);
-  const toast = useToasts((s) => s.push);
-  const [tab, setTab] = useState<Tab>('library');
-  const [query, setQuery] = useState('');
+  const data = useQuestionBank((state) => state.data);
+  const ready = useQuestionBank((state) => state.ready);
+  const busy = useQuestionBank((state) => state.busy);
+  const selectedId = useQuestionBank((state) => state.selectedId);
+  const initialize = useQuestionBank((state) => state.initialize);
+  const commit = useQuestionBank((state) => state.commit);
+  const select = useQuestionBank((state) => state.select);
+  const toast = useToasts((state) => state.push);
+
+  const [idQuery, setIdQuery] = useState('');
+  const [contentQuery, setContentQuery] = useState('');
   const [level, setLevel] = useState('');
   const [type, setType] = useState('');
+  const [imageFilter, setImageFilter] = useState('');
   const [gradeId, setGradeId] = useState('');
   const [domainId, setDomainId] = useState('');
   const [chapterId, setChapterId] = useState('');
   const [lessonId, setLessonId] = useState('');
   const [formId, setFormId] = useState('');
-  const [status, setStatus] = useState('');
   const [editor, setEditor] = useState<Question | 'new' | null>(null);
   const [checked, setChecked] = useState<string[]>([]);
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiProgress, setAiProgress] = useState({ done: 0, total: 0 });
-  const abortRef = useRef<AbortController | null>(null);
+  const [page, setPage] = useState(1);
+  const [detailTab, setDetailTab] = useState<'preview' | 'source'>('preview');
+  const [zoom, setZoom] = useState(100);
+  const [duplicates, setDuplicates] = useState<DuplicateCandidate[] | null>(null);
 
   useEffect(() => {
     void initialize();
   }, [initialize]);
-  const selected = data.questions.find((q) => q.id === selectedId) ?? null;
-  const visible = useMemo(
-    () =>
-      data.questions.filter((q) => {
-        if (tab === 'trash' ? !q.deletedAt : q.deletedAt) return false;
-        const needle = query.trim().toLocaleLowerCase('vi');
-        const matchesText =
-          !needle ||
-          `${q.displayId} ${q.rawSource} ${q.tags.join(' ')}`
-            .toLocaleLowerCase('vi')
-            .includes(needle);
-        const matchesTree =
-          (!gradeId || q.gradeNodeId === gradeId) &&
-          (!domainId || q.domainNodeId === domainId) &&
-          (!chapterId || q.chapterNodeId === chapterId) &&
-          (!lessonId || q.lessonNodeId === lessonId) &&
-          (!formId || q.formNodeId === formId);
-        return (
-          matchesText &&
-          (!level || q.level === level) &&
-          (!type || q.questionType === type) &&
-          (!status || q.status === status) &&
-          matchesTree
-        );
-      }),
-    [
-      data.questions,
-      chapterId,
-      domainId,
-      formId,
-      gradeId,
-      lessonId,
-      level,
-      query,
-      status,
-      tab,
-      type,
-    ],
-  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [
+    idQuery,
+    contentQuery,
+    level,
+    type,
+    imageFilter,
+    gradeId,
+    domainId,
+    chapterId,
+    lessonId,
+    formId,
+  ]);
+
   const curriculum = useMemo(
     () =>
       data.curriculumNodes
@@ -135,12 +118,66 @@ export default function QuestionBankPage() {
   const chapters = children(domainId || null, 'chapter');
   const lessons = children(chapterId || null, 'lesson');
   const forms = children(lessonId || null, 'form');
-  const hasFilters = Boolean(
-    query || gradeId || domainId || chapterId || lessonId || formId || level || type || status,
+
+  const visible = useMemo(
+    () =>
+      data.questions.filter((question) => {
+        if (question.deletedAt) return false;
+        const idNeedle = idQuery.trim().toLocaleLowerCase('vi');
+        const contentNeedle = contentQuery.trim().toLocaleLowerCase('vi');
+        return (
+          (!idNeedle || question.displayId.toLocaleLowerCase('vi').includes(idNeedle)) &&
+          (!contentNeedle ||
+            `${question.rawSource} ${question.tags.join(' ')} ${question.source}`
+              .toLocaleLowerCase('vi')
+              .includes(contentNeedle)) &&
+          (!gradeId || question.gradeNodeId === gradeId) &&
+          (!domainId || question.domainNodeId === domainId) &&
+          (!chapterId || question.chapterNodeId === chapterId) &&
+          (!lessonId || question.lessonNodeId === lessonId) &&
+          (!formId || question.formNodeId === formId) &&
+          (!level || question.level === level) &&
+          (!type || question.questionType === type) &&
+          (!imageFilter || (imageFilter === 'with' ? question.hasImage : !question.hasImage))
+        );
+      }),
+    [
+      data.questions,
+      idQuery,
+      contentQuery,
+      gradeId,
+      domainId,
+      chapterId,
+      lessonId,
+      formId,
+      level,
+      type,
+      imageFilter,
+    ],
   );
 
+  const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = visible.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const selected = data.questions.find((question) => question.id === selectedId) ?? null;
+  const hasFilters = Boolean(
+    idQuery ||
+    contentQuery ||
+    gradeId ||
+    domainId ||
+    chapterId ||
+    lessonId ||
+    formId ||
+    level ||
+    type ||
+    imageFilter,
+  );
+  const allPageChecked =
+    pageRows.length > 0 && pageRows.every((question) => checked.includes(question.id));
+
   function resetFilters() {
-    setQuery('');
+    setIdQuery('');
+    setContentQuery('');
     setGradeId('');
     setDomainId('');
     setChapterId('');
@@ -148,7 +185,16 @@ export default function QuestionBankPage() {
     setFormId('');
     setLevel('');
     setType('');
-    setStatus('');
+    setImageFilter('');
+  }
+
+  function togglePage(shouldCheck: boolean) {
+    const ids = pageRows.map((question) => question.id);
+    setChecked((current) =>
+      shouldCheck
+        ? Array.from(new Set([...current, ...ids]))
+        : current.filter((id) => !ids.includes(id)),
+    );
   }
 
   async function importFiles(files: FileList | null) {
@@ -167,109 +213,77 @@ export default function QuestionBankPage() {
         ...snapshot,
         questions: [...snapshot.questions, ...imported],
       }));
-      toast(`Đã nhập ${imported.length} câu ở trạng thái nháp.`);
+      toast(`Đã nhập ${imported.length} câu vào ngân hàng.`);
     } catch (error) {
       toast(errorText(error), 'error');
     }
   }
 
-  async function softDelete(question: Question) {
+  async function moveToTrash(ids: string[]) {
+    if (!ids.length) return;
+    if (!window.confirm(`Chuyển ${ids.length} câu đã chọn vào thùng rác?`)) return;
     const now = new Date().toISOString();
     await commit((snapshot) => ({
       ...snapshot,
-      questions: snapshot.questions.map((q) =>
-        q.id === question.id ? { ...q, deletedAt: now } : q,
+      questions: snapshot.questions.map((question) =>
+        ids.includes(question.id) ? { ...question, deletedAt: now } : question,
       ),
     }));
-    select(null);
+    setChecked((current) => current.filter((id) => !ids.includes(id)));
+    if (selectedId && ids.includes(selectedId)) select(null);
+    toast(`Đã chuyển ${ids.length} câu vào thùng rác.`);
   }
 
-  async function restore(question: Question) {
-    await commit((snapshot) => ({
-      ...snapshot,
-      questions: snapshot.questions.map((q) =>
-        q.id === question.id ? { ...q, deletedAt: null } : q,
-      ),
-    }));
-  }
-
-  async function runAi() {
-    const ids = checked.length ? checked : selected ? [selected.id] : [];
-    if (!ids.length) return toast('Hãy chọn ít nhất một câu để phân loại.', 'info');
-    if (!window.confirm(`Gửi nội dung ${ids.length} câu đã chọn lên Gemini để phân loại?`)) return;
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setAiBusy(true);
-    setAiProgress({ done: 0, total: ids.length });
-    for (let index = 0; index < ids.length; index += 1) {
-      if (controller.signal.aborted) break;
-      const question = useQuestionBank.getState().data.questions.find((q) => q.id === ids[index]);
-      if (!question) continue;
-      try {
-        const snapshot = useQuestionBank.getState().data;
-        const response = await classifyQuestionOnline(snapshot, question, controller.signal);
-        const run: ClassificationRun = {
-          id: crypto.randomUUID(),
-          questionId: question.id,
-          provider: 'gemini',
-          model: response.model,
-          resultJson: JSON.stringify(response.result),
-          accepted: false,
-          createdAt: new Date().toISOString(),
-        };
-        await useQuestionBank.getState().commit((current) => ({
-          ...current,
-          classificationRuns: [...current.classificationRuns, run],
-        }));
-      } catch (error) {
-        if (!controller.signal.aborted)
-          toast(`${question.displayId || 'Câu nháp'}: ${errorText(error)}`, 'error');
-      }
-      setAiProgress({ done: index + 1, total: ids.length });
-    }
-    setAiBusy(false);
-    abortRef.current = null;
-  }
-
-  async function acceptRun(run: ClassificationRun) {
+  async function copyQuestions(ids: string[]) {
+    const source = data.questions
+      .filter((question) => ids.includes(question.id))
+      .map((question) => question.rawSource.trim())
+      .join('\n\n');
+    if (!source) return;
     try {
-      const result = JSON.parse(run.resultJson) as {
-        level: Question['level'];
-        lessonId: string | null;
-        formId: string | null;
-        primaryLearningOutcomeId: string | null;
-        secondaryLearningOutcomeIds: string[];
-        confidence: number;
-        reasoningSummary: string;
-        warnings: string[];
-      };
-      await commit((snapshot) => ({
-        ...snapshot,
-        questions: snapshot.questions.map((q) =>
-          q.id === run.questionId
-            ? {
-                ...q,
-                level: result.level,
-                lessonNodeId: result.lessonId,
-                formNodeId: result.formId,
-                primaryOutcomeId: result.primaryLearningOutcomeId,
-                secondaryOutcomeIds: result.secondaryLearningOutcomeIds,
-                confidence: Math.round(result.confidence * 100),
-                reasoning: result.reasoningSummary,
-                warnings: result.warnings,
-                status: 'review',
-                updatedAt: new Date().toISOString(),
-              }
-            : q,
-        ),
-        classificationRuns: snapshot.classificationRuns.map((item) =>
-          item.id === run.id ? { ...item, accepted: true } : item,
-        ),
-      }));
-      toast('Đã áp dụng đề xuất AI và chuyển câu sang Chờ duyệt.');
-    } catch (error) {
-      toast(errorText(error), 'error');
+      await navigator.clipboard.writeText(source);
+      toast(`Đã chép mã LaTeX của ${ids.length} câu.`);
+    } catch {
+      toast('Không thể truy cập bộ nhớ tạm trên thiết bị này.', 'error');
     }
+  }
+
+  async function buildExamFromSelection() {
+    const questions = data.questions.filter((question) => checked.includes(question.id));
+    if (!questions.length) return;
+    const title = window.prompt('Tên đề:', 'Đề kiểm tra')?.trim();
+    if (!title) return;
+    const durationInput = window.prompt('Thời gian làm bài (phút):', '45');
+    if (durationInput == null) return;
+    const duration = Number(durationInput);
+    if (!Number.isInteger(duration) || duration < 1 || duration > 1440)
+      return toast('Thời gian làm bài không hợp lệ.', 'error');
+    const now = new Date().toISOString();
+    const created = createExam(title, duration, questions, String(Date.now()));
+    const next: BankSnapshot = {
+      ...data,
+      exams: [...data.exams, created.exam],
+      examItems: [...data.examItems, ...created.items],
+      questions: data.questions.map((question) =>
+        checked.includes(question.id)
+          ? {
+              ...question,
+              idLocked: true,
+              usageCount: question.usageCount + 1,
+              updatedAt: now,
+            }
+          : question,
+      ),
+    };
+    await commit(() => next);
+    await downloadText(`${title}.tex`, examToLatex(next, created.exam));
+    toast(`Đã tạo đề gồm ${questions.length} câu và xuất tệp LaTeX.`);
+  }
+
+  function scanDuplicates() {
+    const rows =
+      visible.length > 2000 ? exactDuplicateCandidates(visible) : findDuplicateCandidates(visible);
+    setDuplicates(rows);
   }
 
   if (!ready)
@@ -278,416 +292,371 @@ export default function QuestionBankPage() {
         <LoaderCircle className="spin" /> Đang mở ngân hàng câu hỏi…
       </div>
     );
-  const duplicates = tab === 'duplicates' ? findDuplicateCandidates(data.questions) : [];
-  const pendingRuns = data.classificationRuns
-    .filter((run) => !run.accepted)
-    .slice()
-    .reverse();
 
   return (
-    <div className="qb-page">
-      <div className="page-heading qb-heading">
-        <div>
-          <div className="eyebrow">QUESTION BANK · V1.4</div>
+    <div className="qb-page qb-mathhub-layout">
+      <header className="qb-command-header">
+        <div className="qb-title-block">
+          <span>QUESTION BANK</span>
           <h1>Ngân hàng câu hỏi</h1>
-          <p>Phân loại theo Yêu cầu cần đạt 2018, quản lý LaTeX và tạo đề có kiểm soát.</p>
+          <small>{visible.length.toLocaleString('vi-VN')} câu hỏi</small>
         </div>
-        <div className="qb-heading-actions">
-          <label className="button secondary">
-            <FilePlus2 size={17} /> Nhập .tex
+        <div className="qb-command-actions">
+          {checked.length > 0 && (
+            <div className="qb-selection-tools" aria-label="Thao tác với câu đã chọn">
+              <strong>{checked.length} đã chọn</strong>
+              <button onClick={() => setChecked([])}>
+                <X size={15} /> Bỏ chọn
+              </button>
+              <button onClick={() => void copyQuestions(checked)}>
+                <Copy size={15} /> Chép code
+              </button>
+              <button
+                onClick={() => {
+                  select(checked[0]);
+                  setDetailTab('preview');
+                }}
+              >
+                <Eye size={15} /> Xem trước
+              </button>
+              <button className="accent" onClick={() => void buildExamFromSelection()}>
+                <FileOutput size={15} /> Tạo đề
+              </button>
+              <button className="danger" onClick={() => void moveToTrash(checked)}>
+                <Trash2 size={15} /> Xóa
+              </button>
+            </div>
+          )}
+          <button className="qb-duplicate-button" onClick={scanDuplicates}>
+            <CopyCheck size={16} /> Quét trùng
+          </button>
+          <label className="button secondary qb-import-button">
+            <FilePlus2 size={16} /> Nhập .tex
             <input
               hidden
               multiple
               type="file"
               accept=".tex,.txt"
-              onChange={(e) => void importFiles(e.target.files)}
+              onChange={(event) => void importFiles(event.target.files)}
             />
           </label>
           <button className="button primary" onClick={() => setEditor('new')}>
-            <Plus size={17} /> Thêm câu
+            <Plus size={16} /> Thêm câu
           </button>
         </div>
-      </div>
-      <nav className="qb-tabs">
-        {TABS.map(([id, label]) => (
-          <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>
-            {label}
-          </button>
-        ))}
-      </nav>
-      {tab === 'curriculum' ? (
-        <CurriculumManager />
-      ) : tab === 'duplicates' ? (
-        <section className="panel">
-          <h2>
-            <CopyCheck size={19} /> Kết quả quét trùng offline
-          </h2>
-          <p>So khớp nội dung chuẩn hóa; không gửi dữ liệu ra ngoài.</p>
-          {duplicates.length ? (
-            <div className="qb-duplicate-list">
-              {duplicates.map((pair) => (
-                <div key={`${pair.left.id}-${pair.right.id}`}>
-                  <strong>{pair.score}%</strong>
-                  <span>
-                    {pair.left.displayId || 'Câu nháp'} ↔ {pair.right.displayId || 'Câu nháp'}
-                  </span>
-                  <small>
-                    {pair.method === 'hash' ? 'Trùng chính xác' : 'Tương đồng nội dung'}
-                  </small>
-                </div>
+      </header>
+
+      <div className="qb-mathhub-shell">
+        <aside className="qb-mathhub-filters" aria-label="Bộ lọc câu hỏi">
+          <FilterSelect
+            label="Lớp"
+            value={gradeId}
+            placeholder="— Tất cả lớp —"
+            rows={grades}
+            onChange={(value) => {
+              setGradeId(value);
+              setDomainId('');
+              setChapterId('');
+              setLessonId('');
+              setFormId('');
+            }}
+          />
+          <FilterSelect
+            label="Cấp 2 / Phân môn"
+            value={domainId}
+            placeholder="— Tất cả —"
+            rows={domains}
+            disabled={!gradeId}
+            onChange={(value) => {
+              setDomainId(value);
+              setChapterId('');
+              setLessonId('');
+              setFormId('');
+            }}
+          />
+          <FilterSelect
+            label="Chương"
+            value={chapterId}
+            placeholder="— Tất cả chương —"
+            rows={chapters}
+            disabled={!domainId}
+            onChange={(value) => {
+              setChapterId(value);
+              setLessonId('');
+              setFormId('');
+            }}
+          />
+          <FilterSelect
+            label="Bài"
+            value={lessonId}
+            placeholder="— Tất cả bài —"
+            rows={lessons}
+            disabled={!chapterId}
+            onChange={(value) => {
+              setLessonId(value);
+              setFormId('');
+            }}
+          />
+          <FilterSelect
+            label="Dạng"
+            value={formId}
+            placeholder="— Tất cả dạng —"
+            rows={forms}
+            disabled={!lessonId}
+            onChange={setFormId}
+          />
+          <label className="qb-filter-field">
+            <span>Mức độ</span>
+            <select value={level} onChange={(event) => setLevel(event.target.value)}>
+              <option value="">— Tất cả mức độ —</option>
+              {Object.entries(LEVEL_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
               ))}
-            </div>
-          ) : (
-            <div className="qb-empty-inline">Không phát hiện cặp trùng từ ngưỡng 82%.</div>
-          )}
-        </section>
-      ) : tab === 'ai' ? (
-        <section className="panel">
-          <h2>
-            <Bot size={19} /> Hàng đợi AI phân loại
-          </h2>
-          <p>AI chỉ đề xuất. Giáo viên duyệt trước khi thay đổi câu hỏi.</p>
-          <div className="qb-ai-actions">
-            <button className="button primary" disabled={aiBusy} onClick={() => void runAi()}>
-              <Bot size={16} /> Phân loại {checked.length || (selected ? 1 : 0)} câu
-            </button>
-            {aiBusy && (
-              <>
-                <span>
-                  {aiProgress.done}/{aiProgress.total}
-                </span>
-                <button className="button secondary" onClick={() => abortRef.current?.abort()}>
-                  <X size={16} /> Dừng sau câu hiện tại
-                </button>
-              </>
-            )}
+            </select>
+          </label>
+          <label className="qb-filter-field">
+            <span>Loại câu hỏi</span>
+            <select value={type} onChange={(event) => setType(event.target.value)}>
+              <option value="">— Tất cả loại —</option>
+              {Object.entries(QUESTION_TYPE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="qb-filter-field">
+            <span>Hình ảnh</span>
+            <select value={imageFilter} onChange={(event) => setImageFilter(event.target.value)}>
+              <option value="">— Có/Không có hình —</option>
+              <option value="with">Có hình</option>
+              <option value="without">Không có hình</option>
+            </select>
+          </label>
+          <button className="qb-reset-button" disabled={!hasFilters} onClick={resetFilters}>
+            <RotateCcw size={15} /> Xóa bộ lọc
+          </button>
+          <div className="qb-filter-count">
+            Hiển thị {visible.length.toLocaleString('vi-VN')} câu
           </div>
-          <div className="qb-run-list">
-            {pendingRuns.map((run) => {
-              const q = data.questions.find((item) => item.id === run.questionId);
-              const result = JSON.parse(run.resultJson) as {
-                level?: string;
-                confidence?: number;
-                reasoningSummary?: string;
-              };
-              return (
-                <article key={run.id}>
-                  <div>
-                    <strong>
-                      {q?.displayId || 'Câu nháp'} · {result.level || '?'}
-                    </strong>
-                    <span>Độ tin cậy {Math.round((result.confidence ?? 0) * 100)}%</span>
-                  </div>
-                  <p>{result.reasoningSummary}</p>
-                  <button className="button small primary" onClick={() => void acceptRun(run)}>
-                    <Check size={15} /> Áp dụng để duyệt
-                  </button>
-                </article>
-              );
-            })}
-            {!pendingRuns.length && (
-              <div className="qb-empty-inline">Chưa có kết quả AI chờ duyệt.</div>
-            )}
-          </div>
-        </section>
-      ) : tab === 'exams' ? (
-        <ExamPanel />
-      ) : (
-        <div className={`qb-workspace ${selected ? 'has-selection' : ''}`}>
-          <aside className="panel qb-filters">
-            <div className="qb-filter-heading">
-              <div>
-                <h2>
-                  <SlidersHorizontal size={18} /> Bộ lọc
-                </h2>
-                <p>{visible.length} câu phù hợp</p>
-              </div>
-              {hasFilters && (
-                <button className="icon-button" title="Xóa bộ lọc" onClick={resetFilters}>
-                  <RotateCcw size={16} />
-                </button>
-              )}
-            </div>
-            <label className="field">
-              Tìm kiếm
-              <div className="qb-search">
-                <Search size={15} />
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="ID, nội dung, nhãn…"
-                />
-              </div>
+        </aside>
+
+        <main className="qb-bank-main">
+          <div className="qb-search-row">
+            <label>
+              <Search size={15} />
+              <input
+                value={idQuery}
+                onChange={(event) => setIdQuery(event.target.value)}
+                placeholder="Tìm ID (VD: 0D1H3-1)"
+              />
             </label>
-            <div className="qb-filter-group">
-              <span className="qb-filter-label">
-                <FolderTree size={14} /> Phân loại chương trình
-              </span>
-              <label className="field">
-                Lớp
-                <select
-                  value={gradeId}
-                  onChange={(e) => {
-                    setGradeId(e.target.value);
-                    setDomainId('');
-                    setChapterId('');
-                    setLessonId('');
-                    setFormId('');
-                  }}
-                >
-                  <option value="">— Tất cả lớp —</option>
-                  {grades.map((node) => (
-                    <option key={node.id} value={node.id}>
-                      {node.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                Mạch kiến thức
-                <select
-                  value={domainId}
-                  disabled={!gradeId}
-                  onChange={(e) => {
-                    setDomainId(e.target.value);
-                    setChapterId('');
-                    setLessonId('');
-                    setFormId('');
-                  }}
-                >
-                  <option value="">— Tất cả mạch —</option>
-                  {domains.map((node) => (
-                    <option key={node.id} value={node.id}>
-                      {node.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                Chương
-                <select
-                  value={chapterId}
-                  disabled={!domainId}
-                  onChange={(e) => {
-                    setChapterId(e.target.value);
-                    setLessonId('');
-                    setFormId('');
-                  }}
-                >
-                  <option value="">— Tất cả chương —</option>
-                  {chapters.map((node) => (
-                    <option key={node.id} value={node.id}>
-                      {node.code} · {node.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                Bài
-                <select
-                  value={lessonId}
-                  disabled={!chapterId}
-                  onChange={(e) => {
-                    setLessonId(e.target.value);
-                    setFormId('');
-                  }}
-                >
-                  <option value="">— Tất cả bài —</option>
-                  {lessons.map((node) => (
-                    <option key={node.id} value={node.id}>
-                      {node.code} · {node.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                Dạng
-                <select
-                  value={formId}
-                  disabled={!lessonId}
-                  onChange={(e) => setFormId(e.target.value)}
-                >
-                  <option value="">— Tất cả dạng —</option>
-                  {forms.map((node) => (
-                    <option key={node.id} value={node.id}>
-                      {node.code} · {node.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="qb-filter-group qb-filter-compact">
-              <label className="field">
-                Mức độ
-                <select value={level} onChange={(e) => setLevel(e.target.value)}>
-                  <option value="">Tất cả</option>
-                  {Object.entries(LEVEL_LABELS).map(([id, label]) => (
-                    <option key={id} value={id}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                Loại câu
-                <select value={type} onChange={(e) => setType(e.target.value)}>
-                  <option value="">Tất cả</option>
-                  {Object.entries(QUESTION_TYPE_LABELS).map(([id, label]) => (
-                    <option key={id} value={id}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                Trạng thái
-                <select value={status} onChange={(e) => setStatus(e.target.value)}>
-                  <option value="">Tất cả</option>
-                  {Object.entries(STATUS_LABELS).map(([id, label]) => (
-                    <option key={id} value={id}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="qb-filter-summary">
-              <span>{visible.length} câu</span>
-              <span>{curriculum.length} nút chương trình</span>
-            </div>
-          </aside>
-          <section className="panel qb-list">
-            <div className="qb-panel-title">
-              <div>
-                <h2>
-                  <ListChecks size={18} /> Danh sách câu
-                </h2>
-                <p>
-                  {checked.length
-                    ? `Đã chọn ${checked.length} câu để AI hoặc tạo đề.`
-                    : 'Chọn nhiều câu để chạy AI hoặc tạo đề.'}
-                </p>
+            <label className="content-search">
+              <Search size={15} />
+              <input
+                value={contentQuery}
+                onChange={(event) => setContentQuery(event.target.value)}
+                placeholder="Tìm theo nội dung…"
+              />
+            </label>
+            <span className="qb-search-mode">Toàn văn</span>
+          </div>
+          <div className="qb-page-controls">
+            <button
+              disabled={safePage <= 1}
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+            >
+              <ChevronLeft size={15} />
+            </button>
+            <span>
+              Trang {safePage}/{totalPages}
+            </span>
+            <button
+              disabled={safePage >= totalPages}
+              onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+            >
+              <ChevronRight size={15} />
+            </button>
+          </div>
+          <div className="qb-table-wrap">
+            <table className="qb-question-table">
+              <thead>
+                <tr>
+                  <th className="check-column">
+                    <input
+                      aria-label="Chọn toàn bộ trang"
+                      type="checkbox"
+                      checked={allPageChecked}
+                      onChange={(event) => togglePage(event.target.checked)}
+                    />
+                  </th>
+                  <th className="number-column">TT</th>
+                  <th>Mã ID</th>
+                  <th>Mức độ</th>
+                  <th>Loại câu</th>
+                  <th>Đáp án</th>
+                  <th className="image-column">
+                    <ImageIcon size={14} />
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map((question, index) => (
+                  <tr
+                    key={question.id}
+                    className={selectedId === question.id ? 'active' : ''}
+                    onClick={() => select(question.id)}
+                  >
+                    <td onClick={(event) => event.stopPropagation()}>
+                      <input
+                        aria-label={`Chọn ${question.displayId || 'câu nháp'}`}
+                        type="checkbox"
+                        checked={checked.includes(question.id)}
+                        onChange={(event) =>
+                          setChecked((current) =>
+                            event.target.checked
+                              ? [...current, question.id]
+                              : current.filter((id) => id !== question.id),
+                          )
+                        }
+                      />
+                    </td>
+                    <td>{(safePage - 1) * PAGE_SIZE + index + 1}</td>
+                    <td
+                      className="id-cell"
+                      title={curriculumPath(data, question.formNodeId || question.lessonNodeId)}
+                    >
+                      {question.displayId || 'CHƯA CÓ ID'}
+                    </td>
+                    <td>
+                      <span className={`qb-badge level-${question.level.toLowerCase()}`}>
+                        {LEVEL_LABELS[question.level]}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`qb-badge type-${question.questionType}`}>
+                        {QUESTION_TYPE_LABELS[question.questionType]}
+                      </span>
+                    </td>
+                    <td className="answer-cell">{question.answer || '—'}</td>
+                    <td>{question.hasImage ? <ImageIcon size={14} /> : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!pageRows.length && (
+              <div className="qb-empty-table">
+                <ListChecks size={24} />
+                <strong>Không có câu hỏi khớp bộ lọc</strong>
+                <button onClick={resetFilters}>Xóa bộ lọc</button>
               </div>
-              {checked.length > 0 && (
-                <button className="button small secondary" onClick={() => setChecked([])}>
-                  Bỏ chọn
-                </button>
-              )}
-            </div>
-            {visible.map((q) => (
-              <button
-                key={q.id}
-                className={`qb-question-row ${selectedId === q.id ? 'active' : ''}`}
-                onClick={() => select(q.id)}
-              >
-                <input
-                  aria-label="Chọn câu"
-                  type="checkbox"
-                  checked={checked.includes(q.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) =>
-                    setChecked((rows) =>
-                      e.target.checked ? [...rows, q.id] : rows.filter((id) => id !== q.id),
-                    )
-                  }
-                />
-                <span>
-                  <strong>{q.displayId || 'CHƯA CÓ ID'}</strong>
-                  <small>
-                    {curriculumPath(data, q.formNodeId || q.lessonNodeId) ||
-                      'Chưa gắn cây chương trình'}
-                  </small>
+            )}
+          </div>
+        </main>
+
+        <aside className="qb-question-detail">
+          {selected && !selected.deletedAt ? (
+            <>
+              <div className="qb-detail-toolbar">
+                <div className="qb-detail-tabs">
+                  <button
+                    className={detailTab === 'preview' ? 'active' : ''}
+                    onClick={() => setDetailTab('preview')}
+                  >
+                    <Eye size={14} /> Xem trước
+                  </button>
+                  <button
+                    className={detailTab === 'source' ? 'active' : ''}
+                    onClick={() => setDetailTab('source')}
+                  >
+                    <Code2 size={14} /> Xem code
+                  </button>
+                </div>
+                <div className="qb-detail-buttons">
+                  <button onClick={() => setEditor(selected)}>
+                    <Pencil size={14} /> Sửa
+                  </button>
+                  <button className="danger" onClick={() => void moveToTrash([selected.id])}>
+                    <Trash2 size={14} /> Xóa
+                  </button>
+                  <button className="copy" onClick={() => void copyQuestions([selected.id])}>
+                    <Copy size={14} /> Copy
+                  </button>
+                </div>
+              </div>
+              <div className="qb-detail-identity">
+                <strong>{selected.displayId || 'Câu chưa có ID'}</strong>
+                <span>{selected.source || 'Không ghi nguồn'}</span>
+              </div>
+              <div className="qb-detail-meta-row">
+                <span className={`qb-badge type-${selected.questionType}`}>
+                  {QUESTION_TYPE_LABELS[selected.questionType]}
                 </span>
-                <em>
-                  {LEVEL_LABELS[q.level]} · {STATUS_LABELS[q.status]}
-                </em>
-              </button>
-            ))}
-            {!visible.length && (
-              <div className="qb-empty-inline qb-empty-library">
-                {hasFilters ? (
-                  <>
-                    <strong>Không có câu nào khớp bộ lọc</strong>
-                    <span>Thử đổi mức độ, trạng thái hoặc xóa toàn bộ bộ lọc.</span>
-                    <button className="button small secondary" onClick={resetFilters}>
-                      <RotateCcw size={15} /> Xóa bộ lọc
-                    </button>
-                  </>
+                <span className={`qb-badge level-${selected.level.toLowerCase()}`}>
+                  {LEVEL_LABELS[selected.level]}
+                </span>
+                <span className="qb-path-label">
+                  {curriculumPath(data, selected.formNodeId || selected.lessonNodeId) ||
+                    'Chưa phân loại'}
+                </span>
+                <label className="qb-zoom-control">
+                  A−
+                  <input
+                    type="range"
+                    min="50"
+                    max="140"
+                    step="10"
+                    value={zoom}
+                    onChange={(event) => setZoom(Number(event.target.value))}
+                  />
+                  A+ <b>{zoom}%</b>
+                </label>
+              </div>
+              <div className="qb-detail-content" style={{ fontSize: `${zoom}%` }}>
+                {detailTab === 'preview' ? (
+                  <QuestionPreview
+                    source={selected.rawSource}
+                    answer={selected.answer}
+                    solution={selected.solution}
+                  />
                 ) : (
-                  <>
-                    <strong>Kho câu hỏi đang trống</strong>
-                    <span>
-                      Thêm một câu hoặc nhập file LaTeX theo định dạng ex_test để bắt đầu.
-                    </span>
-                    <div className="qb-empty-actions">
-                      <button className="button small primary" onClick={() => setEditor('new')}>
-                        <Plus size={15} /> Thêm câu đầu tiên
-                      </button>
-                      <button
-                        className="button small secondary"
-                        onClick={() => setTab('curriculum')}
-                      >
-                        Xem cây chương trình
-                      </button>
-                    </div>
-                  </>
+                  <pre className="qb-source-view">{selected.rawSource}</pre>
                 )}
               </div>
-            )}
-          </section>
-          {selected && (
-            <section className="panel qb-detail">
-              {selected ? (
-                <>
-                  <div className="qb-panel-title">
-                    <div>
-                      <h2>{selected.displayId || 'Câu nháp'}</h2>
-                      <p>{selected.source || 'Không ghi nguồn'}</p>
-                    </div>
-                  </div>
-                  <QuestionPreview source={selected.rawSource} />
-                  <dl className="qb-meta">
-                    <div>
-                      <dt>Mức độ</dt>
-                      <dd>{LEVEL_LABELS[selected.level]}</dd>
-                    </div>
-                    <div>
-                      <dt>Trạng thái</dt>
-                      <dd>{STATUS_LABELS[selected.status]}</dd>
-                    </div>
-                    <div>
-                      <dt>Độ tin cậy</dt>
-                      <dd>{selected.confidence == null ? '—' : `${selected.confidence}%`}</dd>
-                    </div>
-                    <div>
-                      <dt>Lượt dùng</dt>
-                      <dd>{selected.usageCount}</dd>
-                    </div>
-                  </dl>
-                  <div className="qb-detail-actions">
-                    <button className="button primary" onClick={() => setEditor(selected)}>
-                      Chỉnh sửa
-                    </button>
-                    {selected.deletedAt ? (
-                      <button className="button secondary" onClick={() => void restore(selected)}>
-                        <ArchiveRestore size={16} /> Khôi phục
-                      </button>
-                    ) : (
-                      <button className="button danger" onClick={() => void softDelete(selected)}>
-                        <Trash2 size={16} /> Thùng rác
-                      </button>
-                    )}
-                  </div>
-                </>
-              ) : null}
-            </section>
+            </>
+          ) : (
+            <div className="qb-empty-detail">
+              <Eye size={28} />
+              <span>Chọn một câu ở bảng để xem chi tiết.</span>
+            </div>
           )}
-        </div>
-      )}
+        </aside>
+      </div>
+
+      <footer className="qb-statusbar">
+        <span>{visible.length.toLocaleString('vi-VN')} câu theo bộ lọc hiện tại</span>
+        <span>{hasFilters ? 'Đang áp dụng bộ lọc' : 'Bộ lọc: 0'}</span>
+        <span>Ngân hàng: dữ liệu trên thiết bị</span>
+        <span className="backend-ok">Backend: OK</span>
+      </footer>
+
       {editor && (
         <QuestionEditor
           question={editor === 'new' ? undefined : editor}
           onClose={() => setEditor(null)}
+        />
+      )}
+      {duplicates !== null && (
+        <DuplicateResults
+          rows={duplicates}
+          scanned={visible.length}
+          onClose={() => setDuplicates(null)}
+          onOpen={(id) => {
+            select(id);
+            setDuplicates(null);
+          }}
         />
       )}
       {busy && <div className="qb-saving">Đang lưu…</div>}
@@ -695,95 +664,84 @@ export default function QuestionBankPage() {
   );
 }
 
-function ExamPanel() {
-  const data = useQuestionBank((s) => s.data);
-  const commit = useQuestionBank((s) => s.commit);
-  const toast = useToasts((s) => s.push);
-  const [title, setTitle] = useState('Đề kiểm tra');
-  const [duration, setDuration] = useState(45);
-  const [seed, setSeed] = useState(() => String(Date.now()));
-  const [counts, setCounts] = useState({ N: 4, H: 3, V: 2, C: 1 });
-  async function build() {
-    const result = chooseByMatrix(data.questions, counts, seed);
-    const missing = Object.values(result.shortages).reduce((a, b) => a + (b ?? 0), 0);
-    if (missing) return toast(`Ngân hàng thiếu ${missing} câu đã duyệt theo ma trận.`, 'error');
-    const created = createExam(title, duration, result.selected, seed);
-    await commit((s) => ({
-      ...s,
-      exams: [...s.exams, created.exam],
-      examItems: [...s.examItems, ...created.items],
-      questions: s.questions.map((q) =>
-        result.selected.some((x) => x.id === q.id)
-          ? { ...q, idLocked: true, usageCount: q.usageCount + 1 }
-          : q,
-      ),
-    }));
-    toast('Đã tạo đề từ snapshot câu hỏi.');
-  }
+function FilterSelect({
+  label,
+  value,
+  placeholder,
+  rows,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  rows: Array<{ id: string; code: string; name: string }>;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
   return (
-    <div className="qb-exam-grid">
-      <section className="panel">
-        <h2>Tạo đề theo ma trận</h2>
-        <label className="field">
-          Tên đề
-          <input value={title} onChange={(e) => setTitle(e.target.value)} />
-        </label>
-        <div className="form-grid">
-          <label className="field">
-            Thời gian
-            <input
-              type="number"
-              min={1}
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
-            />
-          </label>
-          <label className="field">
-            Seed trộn
-            <input value={seed} onChange={(e) => setSeed(e.target.value)} />
-          </label>
+    <label className="qb-filter-field">
+      <span>{label}</span>
+      <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+        <option value="">{placeholder}</option>
+        {rows.map((row) => (
+          <option key={row.id} value={row.id}>
+            {row.code ? `${row.code} · ` : ''}
+            {row.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function DuplicateResults({
+  rows,
+  scanned,
+  onClose,
+  onOpen,
+}: {
+  rows: DuplicateCandidate[];
+  scanned: number;
+  onClose: () => void;
+  onOpen: (id: string) => void;
+}) {
+  return (
+    <Modal
+      title="Quét câu trùng"
+      subtitle={`Đã quét ${scanned.toLocaleString('vi-VN')} câu trong kết quả hiện tại.`}
+      onClose={onClose}
+      wide
+    >
+      <div className="modal-body qb-duplicate-modal">
+        <div className="qb-duplicate-summary">
+          <CopyCheck size={20} />
+          <strong>{rows.length} cặp nghi trùng</strong>
+          <span>Nhấn vào một cặp để mở câu thứ nhất và kiểm tra thủ công.</span>
         </div>
-        <div className="qb-matrix">
-          {(['N', 'H', 'V', 'C'] as const).map((l) => (
-            <label key={l}>
-              {LEVEL_LABELS[l]}
-              <input
-                type="number"
-                min={0}
-                value={counts[l]}
-                onChange={(e) => setCounts({ ...counts, [l]: Number(e.target.value) })}
-              />
-            </label>
-          ))}
-        </div>
-        <button className="button primary" onClick={() => void build()}>
-          Tạo đề
-        </button>
-      </section>
-      <section className="panel">
-        <h2>Đề đã tạo</h2>
-        {data.exams
-          .slice()
-          .reverse()
-          .map((exam) => (
-            <div className="qb-exam-row" key={exam.id}>
+        <div className="qb-duplicate-results">
+          {rows.map((pair) => (
+            <button key={`${pair.left.id}-${pair.right.id}`} onClick={() => onOpen(pair.left.id)}>
+              <b>{pair.score}%</b>
               <span>
-                <strong>{exam.title}</strong>
-                <small>
-                  {exam.durationMinutes} phút ·{' '}
-                  {data.examItems.filter((i) => i.examId === exam.id).length} câu
-                </small>
+                {pair.left.displayId || 'Câu nháp'} ↔ {pair.right.displayId || 'Câu nháp'}
               </span>
-              <button
-                className="button small secondary"
-                onClick={() => void downloadText(`${exam.title}.tex`, examToLatex(data, exam))}
-              >
-                <Download size={15} /> Xuất .tex
-              </button>
-            </div>
+              <small>{pair.method === 'hash' ? 'Trùng chính xác' : 'Tương đồng nội dung'}</small>
+            </button>
           ))}
-        {!data.exams.length && <div className="qb-empty-inline">Chưa có đề thi.</div>}
-      </section>
-    </div>
+          {!rows.length && (
+            <div className="qb-empty-table">
+              <CopyCheck size={24} />
+              <strong>Không phát hiện câu trùng</strong>
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="modal-footer">
+        <button className="button secondary" onClick={onClose}>
+          Đóng
+        </button>
+      </div>
+    </Modal>
   );
 }
