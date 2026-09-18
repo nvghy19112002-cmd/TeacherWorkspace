@@ -14,6 +14,7 @@ import { ProviderSettings } from '../ai-tools/components/ProviderSettings';
 import { readAiState } from '../ai-tools/services/state';
 import { useQuestionBank } from '../question-bank/store';
 import { bankSnapshotSchema } from '../question-bank/domain/model';
+import { TexPreviewSettingsPanel } from './TexPreviewSettingsPanel';
 export default function SettingsPage() {
   const data = useWorkspace((s) => s.data);
   const busy = useWorkspace((s) => s.busy);
@@ -127,6 +128,7 @@ export default function SettingsPage() {
       </div>
       <div className="settings-grid">
         <UpdatePanel />
+        <TexPreviewSettingsPanel />
         <section className="panel">
           <h2>
             <ShieldCheck size={20} /> Gemini API key

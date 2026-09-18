@@ -62,3 +62,32 @@ This text must not appear.
     }
   },
 );
+
+it.skipIf(!hasTex)('compiles the integrated preset without a user main.tex', () => {
+  const work = mkdtempSync(join(tmpdir(), 'teacher integrated tex '));
+  try {
+    const raw = String.raw`\begin{ex}
+Preview $x^2+1$.\choice{1}{2}{\True 3}{4}
+\begin{tikzpicture}\draw[->] (0,0)--(2,1);\end{tikzpicture}
+\loigiai{Test solution.}
+\end{ex}`;
+    const result = prepareTexPreview(raw, '', { integrated: true });
+    writeFileSync(join(work, 'preview.tex'), result.document);
+    writeFileSync(join(work, 'question.tex'), result.question);
+    const compile = spawnSync(
+      'pdflatex',
+      [
+        '-no-shell-escape',
+        '-interaction=nonstopmode',
+        '-halt-on-error',
+        '-file-line-error',
+        'preview.tex',
+      ],
+      { cwd: work, timeout: 30000, encoding: 'utf8' },
+    );
+    expect(compile.status, compile.stdout + compile.stderr).toBe(0);
+    expect(readFileSync(join(work, 'preview.pdf')).subarray(0, 5).toString()).toBe('%PDF-');
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});

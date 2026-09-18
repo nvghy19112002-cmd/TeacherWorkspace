@@ -2190,6 +2190,53 @@ tr:last-child td {
   margin-top: 3px;
 }
 
+.tex-system-settings {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.tex-detection {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--soft);
+}
+
+.tex-detection.ok > svg {
+  color: #22a06b;
+}
+
+.tex-detection.warning > svg {
+  color: #d68a00;
+}
+
+.tex-detection strong,
+.tex-detection small {
+  display: block;
+}
+
+.tex-detection small {
+  margin-top: 3px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.tex-settings-path {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+
+.tex-settings-path .field {
+  flex: 1;
+  min-width: 0;
+}
+
 /* V1.6: compact desktop visual system inspired by native macOS apps. */
 :root {
   font-family:

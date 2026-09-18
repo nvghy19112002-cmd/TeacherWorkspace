@@ -5,23 +5,23 @@ import { writeFile } from '@tauri-apps/plugin-fs';
 import { Modal } from '../../../components/Modal';
 import { isDesktop } from '../../../database/driver';
 import { errorText } from '../../../app/store';
-import { prepareTexPreview, questionErrorLine } from '../domain/texPreview';
+import {
+  DEFAULT_TEX_PREVIEW_SETTINGS,
+  diagnoseTexLog,
+  prepareTexPreview,
+  questionErrorLine,
+  type TexPreviewSettings,
+  type TexSupportIssue,
+} from '../domain/texPreview';
 
-interface Settings {
-  engine: string;
-  executable: string;
-  preamblePath: string;
-  projectDir: string;
-}
 interface Result {
   success: boolean;
   pdf: number[];
   log: string;
 }
-const initial: Settings = { engine: 'pdflatex', executable: '', preamblePath: '', projectDir: '' };
 
 export function TexLivePreview({ source, onClose }: { source: string; onClose: () => void }) {
-  const [settings, setSettings] = useState(initial);
+  const [settings, setSettings] = useState<TexPreviewSettings>(DEFAULT_TEX_PREVIEW_SETTINGS);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -29,6 +29,8 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
   const [pdfUrl, setPdfUrl] = useState('');
   const [errorLine, setErrorLine] = useState<number | null>(null);
   const [showSource, setShowSource] = useState(false);
+  const [issues, setIssues] = useState<TexSupportIssue[]>([]);
+  const [declarationDraft, setDeclarationDraft] = useState('');
   const cancelled = useRef(false);
   const bytes = useRef<Uint8Array | null>(null);
   const url = useRef('');
@@ -36,7 +38,7 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
   useEffect(() => {
     let alive = true;
     if (isDesktop)
-      void invoke<Settings>('tex_preview_settings')
+      void invoke<TexPreviewSettings>('tex_preview_settings')
         .then((value) => {
           if (alive) {
             setSettings(value);
@@ -60,10 +62,11 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
     bytes.current = null;
     setPdfUrl('');
   }
-  function change(patch: Partial<Settings>) {
+  function change(patch: Partial<TexPreviewSettings>) {
     clearPdf();
     setLog('');
     setErrorLine(null);
+    setIssues([]);
     setSettings((s) => ({ ...s, ...patch }));
   }
   async function browse(field: 'executable' | 'preamblePath' | 'projectDir') {
@@ -97,7 +100,10 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
     try {
       const setup = await invoke<string>('tex_preview_read_setup', { settings });
       if (cancelled.current) throw new Error('Đã hủy biên dịch.');
-      const prepared = prepareTexPreview(source, setup);
+      const prepared = prepareTexPreview(source, setup, {
+        integrated: settings.mode !== 'project',
+        additionalPreamble: settings.additionalPreamble,
+      });
       await invoke('tex_preview_save_settings', { settings });
       if (cancelled.current) throw new Error('Đã hủy biên dịch.');
       const result = await invoke<Result>('tex_preview_compile', {
@@ -107,8 +113,21 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
       });
       setLog(result.log);
       if (!result.success) {
+        const diagnosed = diagnoseTexLog(result.log);
+        setIssues(diagnosed);
+        if (diagnosed.length)
+          setDeclarationDraft(
+            diagnosed
+              .map((item) => item.suggestion)
+              .filter((value, index, rows) => rows.indexOf(value) === index)
+              .join('\n'),
+          );
         setErrorLine(questionErrorLine(result.log, prepared.sourceLineOffset));
-        setMessage('Biên dịch chưa thành công. Xem nhật ký để biết file và dòng lỗi.');
+        setMessage(
+          diagnosed.length
+            ? 'Phát hiện khai báo hoặc gói còn thiếu. Kiểm tra gợi ý bên dưới.'
+            : 'Biên dịch chưa thành công. Xem nhật ký để biết file và dòng lỗi.',
+        );
         return;
       }
       bytes.current = new Uint8Array(result.pdf);
@@ -123,6 +142,23 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
       setMessage(errorText(error));
     } finally {
       setBusy(false);
+    }
+  }
+  async function saveDeclarationAndRetry() {
+    const addition = declarationDraft.trim();
+    if (!addition) return;
+    const next = {
+      ...settings,
+      additionalPreamble: [settings.additionalPreamble.trim(), addition].filter(Boolean).join('\n'),
+    };
+    try {
+      await invoke('tex_preview_save_settings', { settings: next });
+      setSettings(next);
+      setIssues([]);
+      setDeclarationDraft('');
+      setMessage('Đã lưu khai báo bổ sung. Bấm Biên dịch lại để kiểm tra.');
+    } catch (error) {
+      setMessage(errorText(error));
     }
   }
   async function savePdf() {
@@ -140,7 +176,7 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
   return (
     <Modal
       title="Xem trước bằng TeX Live"
-      subtitle="Biên dịch câu đang chọn với bộ khai báo trên máy; giữ nguyên mã nguồn."
+      subtitle="Tự dùng TeX Live và bộ khai báo tích hợp; giữ nguyên mã nguồn câu hỏi."
       onClose={() => {
         if (!busy) onClose();
       }}
@@ -151,8 +187,8 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
           <p>Chức năng này dùng trong ứng dụng Windows để truy cập TeX Live trên máy.</p>
         ) : (
           <>
-            <details open={!pdfUrl}>
-              <summary>Thiết lập TeX Live và bộ khai báo</summary>
+            <details open={!pdfUrl && settings.mode !== 'integrated'}>
+              <summary>Thiết lập nâng cao</summary>
               <label className="field">
                 Trình biên dịch
                 <select
@@ -165,13 +201,25 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
                   <option value="lualatex">LuaLaTeX</option>
                 </select>
               </label>
+              <label className="field">
+                Bộ khai báo
+                <select
+                  disabled={busy}
+                  value={settings.mode}
+                  onChange={(e) => change({ mode: e.target.value as TexPreviewSettings['mode'] })}
+                >
+                  <option value="integrated">Tích hợp trong ứng dụng</option>
+                  <option value="hybrid">Tích hợp + main.tex của tôi</option>
+                  <option value="project">Chỉ dùng main.tex của tôi</option>
+                </select>
+              </label>
               {(['executable', 'preamblePath', 'projectDir'] as const).map((field) => (
                 <div className="qb-tex-path" key={field}>
                   <label className="field">
                     {field === 'executable'
                       ? 'File biên dịch (để trống để tự tìm)'
                       : field === 'preamblePath'
-                        ? 'main.tex hoặc file khai báo'
+                        ? 'main.tex hoặc file khai báo (không bắt buộc)'
                         : 'Thư mục gốc project chứa setting và ảnh'}
                     <input
                       value={settings[field]}
@@ -189,12 +237,39 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
                 </div>
               ))}
               <p className="muted">
-                Nếu chọn main.tex, chỉ dùng phần trước begin document. Bộ khai báo quyết định cách
-                hiện lời giải, font và bố cục như khi anh biên dịch ngoài app. Thư mục project phải
-                đúng nơi các đường dẫn ảnh bắt đầu.
+                App tự tìm TeX Live. Chỉ chọn main.tex/project khi câu hỏi dùng macro, font hoặc ảnh
+                riêng; phần trước begin document sẽ được dùng để xem trước.
               </p>
             </details>
+            <p className="qb-tex-ready">
+              Bộ khai báo:{' '}
+              <strong>{settings.mode === 'integrated' ? 'Tích hợp' : settings.mode}</strong> ·
+              Engine: <strong>{settings.engine}</strong>
+            </p>
             <p role="status">{message}</p>
+            {issues.length > 0 && (
+              <section className="qb-tex-diagnostics" role="alert">
+                <h3>Cần bổ sung khai báo ({issues.length})</h3>
+                {issues.map((issue) => (
+                  <p key={`${issue.kind}:${issue.token}`}>{issue.message}</p>
+                ))}
+                <label className="field">
+                  Khai báo bổ sung dùng cho các lần sau
+                  <textarea
+                    rows={6}
+                    value={declarationDraft}
+                    onChange={(event) => setDeclarationDraft(event.target.value)}
+                  />
+                </label>
+                <button
+                  className="button secondary"
+                  disabled={!declarationDraft.trim()}
+                  onClick={() => void saveDeclarationAndRetry()}
+                >
+                  Lưu khai báo bổ sung
+                </button>
+              </section>
+            )}
             {errorLine && (
               <button className="button secondary" onClick={() => setShowSource(true)}>
                 Xem dòng {errorLine} của câu hỏi
@@ -253,7 +328,7 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
           disabled={!isDesktop || !ready || busy}
           onClick={() => void compile()}
         >
-          Biên dịch xem trước
+          {log && !pdfUrl ? 'Biên dịch lại' : 'Biên dịch xem trước'}
         </button>
       </div>
     </Modal>

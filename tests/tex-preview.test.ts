@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  diagnoseTexLog,
+  findUnsupportedLatex,
   prepareTexPreview,
   questionErrorLine,
 } from '../src/modules/question-bank/domain/texPreview';
@@ -52,5 +54,37 @@ Draw $x^2$. \begin{tikzpicture}\draw (0,0)--(1,1);\end{tikzpicture}
     expect(questionErrorLine('./question.tex:8: Undefined control sequence.', 1)).toBe(7);
     expect(questionErrorLine('C:\\tmp\\question.tex:12: Error', 0)).toBe(12);
     expect(questionErrorLine('./setting/caidat.tex:8: Error', 0)).toBeNull();
+  });
+  it('builds a self-contained integrated preview without requiring main.tex', () => {
+    const result = prepareTexPreview(
+      String.raw`\begin{ex}$x^2$\choice{1}{2}{\True 3}{4}\end{ex}`,
+      '',
+      { integrated: true },
+    );
+    expect(result.document).toContain('Teacher Workspace integrated preview preamble');
+    expect(result.document).toContain('\\IfFileExists{ex_test.sty}');
+    expect(result.document).toContain('\\usepackage{tikz}');
+  });
+  it('warns about custom declarations during import and accepts declarations added by the user', () => {
+    const source = String.raw`\begin{ex}\myCustomDrawing{A}\begin{specialbox}B\end{specialbox}\end{ex}`;
+    expect(findUnsupportedLatex(source).map((item) => item.token)).toEqual([
+      '\\myCustomDrawing',
+      'specialbox',
+    ]);
+    expect(
+      findUnsupportedLatex(
+        source,
+        String.raw`\newcommand{\myCustomDrawing}[1]{#1}\newenvironment{specialbox}{}{}`,
+      ),
+    ).toEqual([]);
+  });
+  it('turns missing package, command and environment log errors into actionable diagnostics', () => {
+    const issues = diagnoseTexLog(String.raw`
+! LaTeX Error: File 'custommath.sty' not found.
+! Undefined control sequence.
+l.8 \lenhrieng{A}
+! LaTeX Error: Environment hopmau undefined.
+`);
+    expect(issues.map((item) => item.token)).toEqual(['custommath.sty', '\\lenhrieng', 'hopmau']);
   });
 });

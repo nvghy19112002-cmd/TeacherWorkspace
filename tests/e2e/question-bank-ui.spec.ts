@@ -87,3 +87,24 @@ test('review imports, skip exact repeats and restore a trashed question', async 
   await page.getByRole('button', { name: 'Ngân hàng câu hỏi', exact: true }).click();
   await expect(page.locator('.qb-question-table tbody tr')).toHaveCount(1);
 });
+
+test('warns before importing a question that needs a custom LaTeX declaration', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Ngân hàng câu hỏi', exact: true }).click();
+  const raw = String.raw`\begin{ex}\myCustomDrawing{A}\end{ex}`;
+  await page.locator('.qb-import-button input').setInputFiles({
+    name: 'macro-rieng.tex',
+    mimeType: 'text/plain',
+    buffer: Buffer.from(raw),
+  });
+  const declaration = page.getByRole('dialog', { name: 'Bổ sung khai báo LaTeX', exact: true });
+  await expect(declaration).toBeVisible();
+  await expect(declaration.getByText(/myCustomDrawing/).first()).toBeVisible();
+  await declaration.getByRole('button', { name: 'Bỏ qua cảnh báo', exact: true }).click();
+  const review = page.getByRole('dialog', { name: 'Kiểm tra trước khi nhập', exact: true });
+  await expect(review).toBeVisible();
+  await expect(review.getByText(/Khai báo LaTeX/).first()).toBeVisible();
+  await review.getByRole('button', { name: 'Hủy nhập', exact: true }).click();
+});

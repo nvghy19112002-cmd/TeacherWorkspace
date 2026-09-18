@@ -8,18 +8,24 @@ pub struct PreviewState {
     cancel: Arc<AtomicBool>,
 }
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub engine: String,
     pub executable: String,
     pub preamble_path: String,
     pub project_dir: String,
+    pub mode: String,
+    pub additional_preamble: String,
 }
 impl Default for Settings {
-    fn default() -> Self { Self { engine: "pdflatex".into(), executable: String::new(), preamble_path: String::new(), project_dir: String::new() } }
+    fn default() -> Self { Self { engine: "pdflatex".into(), executable: String::new(), preamble_path: String::new(), project_dir: String::new(), mode: "integrated".into(), additional_preamble: String::new() } }
 }
 #[derive(Serialize)]
 pub struct CompileResult { pdf: Vec<u8>, log: String, success: bool }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectionResult { available: bool, engine: String, executable: String, version: String }
 fn fail(e: impl std::fmt::Display) -> String { e.to_string() }
 fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app.path().app_data_dir().map_err(fail)?.join("tex-preview-settings.json"))
@@ -40,8 +46,21 @@ fn validate(settings: &Settings) -> Result<(), String> {
         let stem = path.file_stem().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
         if stem != settings.engine { return Err("File thực thi phải khớp trình biên dịch đã chọn.".into()); }
     }
-    if !Path::new(&settings.preamble_path).is_file() { return Err("Chọn file khai báo hoặc main.tex có sẵn.".into()); }
-    if !Path::new(&settings.project_dir).is_dir() { return Err("Chọn thư mục gốc của project LaTeX chứa ảnh và setting.".into()); }
+    if !["integrated", "hybrid", "project"].contains(&settings.mode.as_str()) {
+        return Err("Chế độ khai báo TeX không hợp lệ.".into());
+    }
+    if settings.mode == "project" && !Path::new(&settings.preamble_path).is_file() {
+        return Err("Chế độ project yêu cầu chọn file khai báo hoặc main.tex có sẵn.".into());
+    }
+    if !settings.preamble_path.is_empty() && !Path::new(&settings.preamble_path).is_file() {
+        return Err("File khai báo hoặc main.tex không tồn tại.".into());
+    }
+    if !settings.project_dir.is_empty() && !Path::new(&settings.project_dir).is_dir() {
+        return Err("Thư mục gốc của project LaTeX không tồn tại.".into());
+    }
+    if settings.additional_preamble.len() > 200_000 {
+        return Err("Khai báo bổ sung vượt quá 200 KB.".into());
+    }
     Ok(())
 }
 #[tauri::command]
@@ -53,6 +72,7 @@ pub fn tex_preview_save_settings(app: tauri::AppHandle, settings: Settings) -> R
 #[tauri::command]
 pub fn tex_preview_read_setup(settings: Settings) -> Result<String, String> {
     validate(&settings)?;
+    if settings.preamble_path.is_empty() { return Ok(String::new()); }
     let bytes = fs::read(&settings.preamble_path).map_err(fail)?;
     if bytes.len() > 2_000_000 { return Err("File khai báo lớn hơn 2 MB.".into()); }
     String::from_utf8(bytes).map(|s| s.trim_start_matches('\u{feff}').to_string()).map_err(|_| "File khai báo cần mã hóa UTF-8.".into())
@@ -80,6 +100,19 @@ fn executable(settings: &Settings) -> PathBuf {
     }
     PathBuf::from(&settings.engine)
 }
+
+#[tauri::command]
+pub fn tex_preview_detect(settings: Settings) -> DetectionResult {
+    let engine = executable(&settings);
+    let output = Command::new(&engine).arg("--version").stdin(Stdio::null()).output();
+    match output {
+        Ok(output) if output.status.success() => {
+            let first = String::from_utf8_lossy(&output.stdout).lines().next().unwrap_or("").trim().to_string();
+            DetectionResult { available: true, engine: settings.engine, executable: engine.display().to_string(), version: first }
+        }
+        _ => DetectionResult { available: false, engine: settings.engine, executable: engine.display().to_string(), version: String::new() },
+    }
+}
 struct BusyGuard(Arc<AtomicBool>);
 impl Drop for BusyGuard { fn drop(&mut self) { self.0.store(false, Ordering::SeqCst); } }
 struct TempGuard(PathBuf);
@@ -102,11 +135,15 @@ pub async fn tex_preview_compile(app: tauri::AppHandle, state: tauri::State<'_, 
         let _temp = TempGuard(dir.clone());
         fs::write(dir.join("preview.tex"), document).map_err(fail)?;
         fs::write(dir.join("question.tex"), question).map_err(fail)?;
-        let project = fs::canonicalize(&settings.project_dir).map_err(fail)?;
-        let setup_parent = Path::new(&settings.preamble_path).parent().unwrap_or(&project);
+        let project = if settings.project_dir.is_empty() { None } else { Some(fs::canonicalize(&settings.project_dir).map_err(fail)?) };
+        let setup_parent = if settings.preamble_path.is_empty() { None } else { Path::new(&settings.preamble_path).parent().map(Path::to_path_buf) };
         let separator = if cfg!(windows) { ";" } else { ":" };
         // Final empty entry preserves the TeX distribution's default search path.
-        let inputs = format!(".{}{}//{}{}//{}", separator, tex_path(&project), separator, tex_path(setup_parent), separator);
+        let mut search = vec![".".to_string()];
+        if let Some(project) = &project { search.push(format!("{}//", tex_path(project))); }
+        if let Some(parent) = &setup_parent { search.push(format!("{}//", tex_path(parent))); }
+        search.push(String::new());
+        let inputs = search.join(separator);
         let engine = executable(&settings);
         let start = Instant::now();
         for pass in 0..2 {

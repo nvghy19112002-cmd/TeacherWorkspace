@@ -2,6 +2,7 @@ import { AiIdScan } from './components/AiIdScan';
 import { TexLivePreview } from './components/TexLivePreview';
 import { uniqueImports } from './domain/importReview';
 import { useEffect, useMemo, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import {
   ChevronLeft,
   ChevronRight,
@@ -24,6 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import { errorText } from '../../app/store';
+import { isDesktop } from '../../database/driver';
 import { Modal } from '../../components/Modal';
 import { useToasts } from '../../components/feedback';
 import { saveFile } from '../../services/files';
@@ -39,6 +41,12 @@ import {
   type Question,
 } from './domain/model';
 import { parsedToQuestion, parseExTest } from './domain/parser';
+import {
+  DEFAULT_TEX_PREVIEW_SETTINGS,
+  findUnsupportedLatex,
+  type TexPreviewSettings,
+  type TexSupportIssue,
+} from './domain/texPreview';
 import { useQuestionBank } from './store';
 import './questionBank.css';
 
@@ -75,6 +83,10 @@ export default function QuestionBankPage() {
   const [aiQuestions, setAiQuestions] = useState<Question[] | null>(null);
   const [texSource, setTexSource] = useState<string | null>(null);
   const [pendingImport, setPendingImport] = useState<Question[] | null>(null);
+  const [importIssues, setImportIssues] = useState<TexSupportIssue[]>([]);
+  const [importDeclarationStep, setImportDeclarationStep] = useState(false);
+  const [importDeclarationDraft, setImportDeclarationDraft] = useState('');
+  const [importTexSettings, setImportTexSettings] = useState<TexPreviewSettings | null>(null);
   const [skipIdentical, setSkipIdentical] = useState(true);
   const [trashOpen, setTrashOpen] = useState(false);
   const [trashPage, setTrashPage] = useState(1);
@@ -230,12 +242,74 @@ export default function QuestionBankPage() {
         toast('Không tìm thấy câu hỏi trong file.', 'error');
         return;
       }
+      let texSettings = DEFAULT_TEX_PREVIEW_SETTINGS;
+      if (isDesktop)
+        try {
+          texSettings = await invoke<TexPreviewSettings>('tex_preview_settings');
+        } catch {
+          // Import remains available; compilation will show the native configuration error later.
+        }
+      const issues = imported
+        .flatMap((question) =>
+          findUnsupportedLatex(question.rawSource, texSettings.additionalPreamble),
+        )
+        .filter(
+          (issue, index, rows) =>
+            rows.findIndex((row) => row.kind === issue.kind && row.token === issue.token) === index,
+        );
+      const withWarnings = issues.length
+        ? imported.map((question) => {
+            const questionIssues = findUnsupportedLatex(
+              question.rawSource,
+              texSettings.additionalPreamble,
+            );
+            return {
+              ...question,
+              warnings: [
+                ...question.warnings,
+                ...questionIssues.map((issue) => `Khai báo LaTeX: ${issue.message}`),
+              ],
+            };
+          })
+        : imported;
       setSkipIdentical(true);
-      setPendingImport(imported);
+      setPendingImport(withWarnings);
+      setImportTexSettings(texSettings);
+      setImportIssues(issues);
+      setImportDeclarationStep(issues.length > 0);
+      setImportDeclarationDraft(
+        issues
+          .map((issue) => issue.suggestion)
+          .filter((value, index, rows) => rows.indexOf(value) === index)
+          .join('\n'),
+      );
     } catch (error) {
       toast(errorText(error), 'error');
     } finally {
       setReadingFiles(false);
+    }
+  }
+
+  async function saveImportDeclarations() {
+    if (!importTexSettings || !isDesktop) {
+      setImportDeclarationStep(false);
+      return;
+    }
+    const addition = importDeclarationDraft.trim();
+    if (!addition) return;
+    try {
+      const next = {
+        ...importTexSettings,
+        additionalPreamble: [importTexSettings.additionalPreamble.trim(), addition]
+          .filter(Boolean)
+          .join('\n'),
+      };
+      await invoke('tex_preview_save_settings', { settings: next });
+      setImportTexSettings(next);
+      setImportDeclarationStep(false);
+      toast('Đã lưu khai báo LaTeX bổ sung. Nội dung câu hỏi không bị thay đổi.');
+    } catch (error) {
+      toast(errorText(error), 'error');
     }
   }
 
@@ -781,62 +855,119 @@ export default function QuestionBankPage() {
       )}
       {pendingImport && (
         <Modal
-          title="Kiểm tra trước khi nhập"
-          subtitle="Giữ nguyên mã LaTeX nguồn. ID đọc được chưa tự gán sang cây KNTT."
+          title={importDeclarationStep ? 'Bổ sung khai báo LaTeX' : 'Kiểm tra trước khi nhập'}
+          subtitle={
+            importDeclarationStep
+              ? 'Phát hiện lệnh hoặc môi trường chưa có trong bộ tích hợp.'
+              : 'Giữ nguyên mã LaTeX nguồn. ID đọc được chưa tự gán sang cây KNTT.'
+          }
           onClose={() => !busy && setPendingImport(null)}
           wide
         >
-          <div className="modal-body">
-            <p>
-              {pendingImport.length} câu ·{' '}
-              {pendingImport.filter((q) => q.classificationCode).length} có ID nguồn ·{' '}
-              {pendingImport.filter((q) => q.warnings.length).length} cần xem lại.
-            </p>
-            <label>
-              <input
-                type="checkbox"
-                checked={skipIdentical}
-                disabled={busy}
-                onChange={(e) => setSkipIdentical(e.target.checked)}
-              />{' '}
-              Bỏ qua {importReview.skipped} câu có mã LaTeX giống hệt (kể cả trong thùng rác).
-            </label>
-            <p>
-              Sẽ lưu {skipIdentical ? importReview.questions.length : pendingImport.length} câu.
-              Hiển thị tối đa 50 câu đầu bên dưới.
-            </p>
-            <div className="qb-import-review">
-              {pendingImport.slice(0, 50).map((q, i) => (
-                <div key={q.id}>
-                  <strong>
-                    {i + 1}. {q.classificationCode || 'Chưa có ID'} ·{' '}
-                    {QUESTION_TYPE_LABELS[q.questionType]}
-                  </strong>
-                  <small>
-                    {q.source} · Đáp án: {q.answer || 'Chưa nhận diện'}
-                  </small>
-                  {q.warnings.map((warning) => (
-                    <p key={warning}>{warning}</p>
-                  ))}
-                </div>
+          {importDeclarationStep ? (
+            <div className="modal-body qb-tex-diagnostics">
+              <h3>{importIssues.length} thành phần cần kiểm tra</h3>
+              {importIssues.map((issue) => (
+                <p key={`${issue.kind}:${issue.token}`}>{issue.message}</p>
               ))}
+              <label className="field">
+                Khai báo bổ sung
+                <textarea
+                  rows={10}
+                  spellCheck={false}
+                  value={importDeclarationDraft}
+                  onChange={(event) => setImportDeclarationDraft(event.target.value)}
+                />
+              </label>
+              <p className="muted">
+                App không tự đoán số tham số của macro riêng. Hãy dán khai báo gốc nếu phần gợi ý
+                mới chỉ là chú thích. Có thể tiếp tục nhập và bổ sung sau trong Cài đặt.
+              </p>
             </div>
-          </div>
+          ) : (
+            <div className="modal-body">
+              <p>
+                {pendingImport.length} câu ·{' '}
+                {pendingImport.filter((q) => q.classificationCode).length} có ID nguồn ·{' '}
+                {pendingImport.filter((q) => q.warnings.length).length} cần xem lại.
+              </p>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={skipIdentical}
+                  disabled={busy}
+                  onChange={(e) => setSkipIdentical(e.target.checked)}
+                />{' '}
+                Bỏ qua {importReview.skipped} câu có mã LaTeX giống hệt (kể cả trong thùng rác).
+              </label>
+              <p>
+                Sẽ lưu {skipIdentical ? importReview.questions.length : pendingImport.length} câu.
+                Hiển thị tối đa 50 câu đầu bên dưới.
+              </p>
+              <div className="qb-import-review">
+                {pendingImport.slice(0, 50).map((q, i) => (
+                  <div key={q.id}>
+                    <strong>
+                      {i + 1}. {q.classificationCode || 'Chưa có ID'} ·{' '}
+                      {QUESTION_TYPE_LABELS[q.questionType]}
+                    </strong>
+                    <small>
+                      {q.source} · Đáp án: {q.answer || 'Chưa nhận diện'}
+                    </small>
+                    {q.warnings.map((warning) => (
+                      <p key={warning}>{warning}</p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="modal-footer">
-            <button
-              className="button secondary"
-              disabled={busy}
-              onClick={() => setPendingImport(null)}
-            >
-              Hủy nhập
-            </button>
-            <button
-              className="button primary"
-              disabled={busy || (skipIdentical && !importReview.questions.length)}
-              onClick={() => void confirmImport()}
-            >
-              Xác nhận nhập
-            </button>
+            {importDeclarationStep ? (
+              <>
+                <button className="button secondary" onClick={() => setPendingImport(null)}>
+                  Hủy nhập
+                </button>
+                <button
+                  className="button secondary"
+                  onClick={() => setImportDeclarationStep(false)}
+                >
+                  Bỏ qua cảnh báo
+                </button>
+                <button
+                  className="button primary"
+                  disabled={isDesktop && !importDeclarationDraft.trim()}
+                  onClick={() => void saveImportDeclarations()}
+                >
+                  {isDesktop ? 'Lưu khai báo và tiếp tục' : 'Tiếp tục kiểm tra'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className="button secondary"
+                  disabled={busy}
+                  onClick={() => setPendingImport(null)}
+                >
+                  Hủy nhập
+                </button>
+                {importIssues.length > 0 && (
+                  <button
+                    className="button secondary"
+                    onClick={() => setImportDeclarationStep(true)}
+                  >
+                    Xem khai báo thiếu ({importIssues.length})
+                  </button>
+                )}
+                <button
+                  className="button primary"
+                  disabled={busy || (skipIdentical && !importReview.questions.length)}
+                  onClick={() => void confirmImport()}
+                >
+                  Xác nhận nhập
+                </button>
+              </>
+            )}
           </div>
         </Modal>
       )}

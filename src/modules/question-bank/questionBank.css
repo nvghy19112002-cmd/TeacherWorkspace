@@ -903,6 +903,28 @@
   display: block;
 }
 
+.qb-tex-ready {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--soft);
+}
+
+.qb-tex-diagnostics {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, #d68a00 45%, var(--border));
+  border-radius: 11px;
+  background: color-mix(in srgb, #d68a00 8%, var(--surface));
+}
+
+.qb-tex-diagnostics h3,
+.qb-tex-diagnostics p {
+  margin: 0;
+}
+
 .qb-ai-scan {
   max-height: 64vh;
   overflow: auto;

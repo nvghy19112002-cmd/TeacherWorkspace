@@ -1,6 +1,6 @@
 [package]
 name = "teacher-workspace"
-version = "1.6.1"
+version = "1.7.0"
 description = "An offline workspace for teachers"
 authors = ["Teacher Workspace"]
 edition = "2021"

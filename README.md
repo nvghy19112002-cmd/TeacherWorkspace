@@ -4,6 +4,10 @@
 
 Từ V1.4.1, khi chưa bật GitHub auto-update, người dùng tải installer Windows mới rồi vào **Cài đặt → Cập nhật từ file đã tải**. Ứng dụng kiểm tra file, từ chối phiên bản bằng/cũ hơn, sao lưu SQLite, mở installer và tự đóng. Xem chi tiết tại `docs/MANUAL_UPDATE.md`.
 
+## V1.7.0 · TeX Live tự động và bộ khai báo tích hợp
+
+V1.7.0 tự tìm TeX Live trên máy và cho phép xem trước câu hỏi mà không cần chọn `main.tex`. Bộ khai báo tích hợp hỗ trợ hệ câu hỏi hiện tại gồm ex_test, trắc nghiệm/đúng-sai/trả lời ngắn, hệ phương trình, TikZ, PGFPlots, tkz-euclide và tkz-tab. Khi nhập hoặc biên dịch gặp macro/môi trường chưa có, ứng dụng cảnh báo, gợi ý gói và mở vùng bổ sung khai báo; mã câu hỏi gốc không bị sửa. Cấu hình được quản lý tại **Cài đặt → TeX Live và xem trước câu hỏi**. Xem [bàn giao V1.7.0](docs/HANDOFF_V1.7.0.md).
+
 ## V1.6.1 · Sửa pipeline đóng gói V1.6
 
 V1.6.1 sửa ba bài kiểm thử E2E bị ảnh hưởng bởi giao diện mới: phân biệt đúng nút **Đóng** trong chân hộp thoại AI, đúng nút **Xóa** của thanh chọn nhiều câu và cập nhật màu nền/chữ tối theo bộ giao diện macOS. Không thay đổi dữ liệu ngân hàng câu hỏi.
@@ -101,7 +105,7 @@ npm run desktop:build -- --config src-tauri/tauri.ci.conf.json
 Kết quả sau **khi build thành công trên Windows x64**:
 
 - Executable: `src-tauri\target\release\teacher-workspace.exe`
-- Installer NSIS: `src-tauri\target\release\bundle\nsis\Teacher Workspace_1.6.1_x64-setup.exe`
+- Installer NSIS: `src-tauri\target\release\bundle\nsis\Teacher Workspace_1.7.0_x64-setup.exe`
 
 Installer thông thường nhúng WebView2 bootstrapper; nếu máy chưa có WebView2, bước cài runtime cần mạng. Để tạo installer chứa cả runtime và cài trên máy hoàn toàn offline:
 
