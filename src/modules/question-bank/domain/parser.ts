@@ -1,5 +1,6 @@
 import { commandBlock, maskComments, parseChoices } from './latex';
-import { parseClassificationCode, splitDisplayId } from './ids';
+import { parseClassificationCode } from './ids';
+import { inspectId6, sourceIdCandidates } from './id6Taxonomy';
 import { questionHash, normalizeQuestionSource } from './normalize';
 import type { Question } from './model';
 
@@ -45,12 +46,14 @@ export function parseExTest(source: string): ParsedQuestion[] {
             .flatMap((choice, index) => (choice.correct ? [String.fromCharCode(65 + index)] : []))
             .join(', '));
     const solution = commandBlock(clean, 'loigiai');
-    const header = rawSource.split(/\\choice|\\shortans|\\loigiai/)[0];
-    const ids = [...header.matchAll(/\[([0-9A-Z]+[A-Z]\d+[NHVC]\d+-\d+(?:-\d{3,})?)\]/g)].map(
-      (match) => match[1],
-    );
-    const sourceId = ids.find((id) => parseClassificationCode(id) || splitDisplayId(id));
+    const ids = [...new Set(sourceIdCandidates(rawSource))];
+    const inspections = ids.map(inspectId6);
+    const sourceId = ids.length === 1 && inspections[0].state === 'valid' ? ids[0] : undefined;
     const warnings: string[] = [];
+    if (ids.length > 1)
+      warnings.push(`Có nhiều ID nguồn (${ids.join(', ')}); chọn ID đúng khi phân loại.`);
+    if (ids.length === 1 && inspections[0].state !== 'valid')
+      warnings.push(`ID nguồn ${ids[0]}: ${inspections[0].message}`);
     if (!/\\end\{ex\}/.test(rawSource) && /\\begin\{ex\}/.test(rawSource))
       warnings.push('Môi trường ex chưa đóng.');
     if (
@@ -79,12 +82,11 @@ export function parseExTest(source: string): ParsedQuestion[] {
 
 export function parsedToQuestion(value: ParsedQuestion, source = ''): Question {
   const now = new Date().toISOString();
+  const classificationCode = value.sourceId ? inspectId6(value.sourceId).classificationCode : '';
   return {
     id: crypto.randomUUID(),
     displayId: '',
-    classificationCode: value.sourceId
-      ? (splitDisplayId(value.sourceId)?.classificationCode ?? value.sourceId)
-      : '',
+    classificationCode,
     sequenceNumber: null,
     rawSource: value.rawSource,
     normalizedSource: normalizeQuestionSource(value.rawSource),
@@ -92,12 +94,7 @@ export function parsedToQuestion(value: ParsedQuestion, source = ''): Question {
     questionType: value.questionType,
     answer: value.answer,
     solution: value.solution,
-    level:
-      parseClassificationCode(
-        value.sourceId
-          ? (splitDisplayId(value.sourceId)?.classificationCode ?? value.sourceId)
-          : '',
-      )?.level ?? 'N',
+    level: parseClassificationCode(classificationCode)?.level ?? 'N',
     gradeNodeId: null,
     domainNodeId: null,
     chapterNodeId: null,
@@ -113,8 +110,8 @@ export function parsedToQuestion(value: ParsedQuestion, source = ''): Question {
     warnings: [
       ...value.warnings,
       ...(value.sourceId
-        ? [`ID trong file nguồn: ${value.sourceId}. Chưa đối chiếu cây chương trình.`]
-        : []),
+        ? [`ID6 ${value.sourceId} khớp cây ID6; chưa ánh xạ sang cây KNTT trong app.`]
+        : ['Chưa xác định mức độ và cây phân loại từ ID nguồn.']),
     ],
     hasImage: value.hasImage,
     usageCount: 0,

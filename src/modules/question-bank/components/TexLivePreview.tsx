@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
@@ -9,7 +9,9 @@ import {
   DEFAULT_TEX_PREVIEW_SETTINGS,
   diagnoseTexLog,
   prepareTexPreview,
+  prepareTexPreviewBatch,
   questionErrorLine,
+  type BatchPreviewItem,
   type TexPreviewSettings,
   type TexSupportIssue,
 } from '../domain/texPreview';
@@ -20,18 +22,29 @@ interface Result {
   log: string;
 }
 
-export function TexLivePreview({ source, onClose }: { source: string; onClose: () => void }) {
+export function TexLivePreview({
+  source,
+  items,
+  onClose,
+}: {
+  source: string;
+  items?: BatchPreviewItem[];
+  onClose: () => void;
+}) {
   const [settings, setSettings] = useState<TexPreviewSettings>(DEFAULT_TEX_PREVIEW_SETTINGS);
+  const [ordered, setOrdered] = useState<BatchPreviewItem[]>(items ?? []);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [log, setLog] = useState('');
   const [pdfUrl, setPdfUrl] = useState('');
   const [errorLine, setErrorLine] = useState<number | null>(null);
+  const [errorItem, setErrorItem] = useState('');
   const [showSource, setShowSource] = useState(false);
   const [issues, setIssues] = useState<TexSupportIssue[]>([]);
   const [declarationDraft, setDeclarationDraft] = useState('');
   const cancelled = useRef(false);
+  const autoStarted = useRef(false);
   const bytes = useRef<Uint8Array | null>(null);
   const url = useRef('');
   const highlighted = useRef<HTMLSpanElement>(null);
@@ -50,22 +63,34 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
         });
     return () => {
       alive = false;
+      cancelled.current = true;
       if (url.current) URL.revokeObjectURL(url.current);
     };
   }, []);
   useEffect(() => {
     if (showSource) highlighted.current?.scrollIntoView({ block: 'center' });
   }, [showSource, errorLine]);
-  function clearPdf() {
+  const clearPdf = useCallback(() => {
     if (url.current) URL.revokeObjectURL(url.current);
     url.current = '';
     bytes.current = null;
     setPdfUrl('');
+  }, []);
+  function move(index: number, offset: number) {
+    if (index + offset < 0 || index + offset >= ordered.length) return;
+    clearPdf();
+    setOrdered((previous) => {
+      const next = [...previous];
+      [next[index], next[index + offset]] = [next[index + offset], next[index]];
+      return next;
+    });
+    setMessage('Đã đổi thứ tự. Bấm Biên dịch xem trước để cập nhật PDF.');
   }
   function change(patch: Partial<TexPreviewSettings>) {
     clearPdf();
     setLog('');
     setErrorLine(null);
+    setErrorItem('');
     setIssues([]);
     setSettings((s) => ({ ...s, ...patch }));
   }
@@ -89,61 +114,84 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
       setMessage(errorText(error));
     }
   }
-  async function compile() {
-    cancelled.current = false;
-    setBusy(true);
-    clearPdf();
-    setLog('');
-    setErrorLine(null);
-    setShowSource(false);
-    setMessage('Đang chuẩn bị và biên dịch…');
-    try {
-      const setup = await invoke<string>('tex_preview_read_setup', { settings });
-      if (cancelled.current) throw new Error('Đã hủy biên dịch.');
-      const prepared = prepareTexPreview(source, setup, {
-        integrated: settings.mode !== 'project',
-        additionalPreamble: settings.additionalPreamble,
-      });
-      await invoke('tex_preview_save_settings', { settings });
-      if (cancelled.current) throw new Error('Đã hủy biên dịch.');
-      const result = await invoke<Result>('tex_preview_compile', {
-        settings,
-        document: prepared.document,
-        question: prepared.question,
-      });
-      setLog(result.log);
-      if (!result.success) {
-        const diagnosed = diagnoseTexLog(result.log);
-        setIssues(diagnosed);
-        if (diagnosed.length)
-          setDeclarationDraft(
-            diagnosed
-              .map((item) => item.suggestion)
-              .filter((value, index, rows) => rows.indexOf(value) === index)
-              .join('\n'),
+  const compile = useCallback(
+    async (currentSettings: TexPreviewSettings = settings) => {
+      cancelled.current = false;
+      setBusy(true);
+      clearPdf();
+      setLog('');
+      setErrorLine(null);
+      setShowSource(false);
+      setMessage('Đang chuẩn bị và biên dịch…');
+      try {
+        const setup = await invoke<string>('tex_preview_read_setup', { settings: currentSettings });
+        if (cancelled.current) throw new Error('Đã hủy biên dịch.');
+        const options = {
+          integrated: currentSettings.mode !== 'project',
+          additionalPreamble: currentSettings.additionalPreamble,
+        };
+        const batch = ordered.length ? prepareTexPreviewBatch(ordered, setup, options) : null;
+        const prepared = batch ?? prepareTexPreview(source, setup, options);
+        await invoke('tex_preview_save_settings', { settings: currentSettings });
+        if (cancelled.current) throw new Error('Đã hủy biên dịch.');
+        const result = await invoke<Result>('tex_preview_compile', {
+          settings: currentSettings,
+          document: prepared.document,
+          question: prepared.question,
+        });
+        setLog(result.log);
+        if (!result.success) {
+          const diagnosed = diagnoseTexLog(result.log);
+          setIssues(diagnosed);
+          if (diagnosed.length)
+            setDeclarationDraft(
+              diagnosed
+                .map((item) => item.suggestion)
+                .filter((value, index, rows) => rows.indexOf(value) === index)
+                .join('\n'),
+            );
+          const line = questionErrorLine(result.log, prepared.sourceLineOffset);
+          if (batch && line) {
+            const range = batch.ranges.find(
+              (item) => line >= item.firstLine && line <= item.lastLine,
+            );
+            setErrorItem(
+              range
+                ? `Lỗi ở ${range.label}, dòng ${line - range.firstLine + 1}.`
+                : 'Kiểm tra nhật ký biên dịch.',
+            );
+          } else {
+            setErrorLine(line);
+          }
+          setMessage(
+            diagnosed.length
+              ? 'Phát hiện khai báo hoặc gói còn thiếu. Kiểm tra gợi ý bên dưới.'
+              : 'Biên dịch chưa thành công. Xem nhật ký để biết file và dòng lỗi.',
           );
-        setErrorLine(questionErrorLine(result.log, prepared.sourceLineOffset));
-        setMessage(
-          diagnosed.length
-            ? 'Phát hiện khai báo hoặc gói còn thiếu. Kiểm tra gợi ý bên dưới.'
-            : 'Biên dịch chưa thành công. Xem nhật ký để biết file và dòng lỗi.',
+          return;
+        }
+        bytes.current = new Uint8Array(result.pdf);
+        url.current = URL.createObjectURL(
+          new Blob([new Uint8Array(result.pdf)], { type: 'application/pdf' }),
         );
-        return;
+        setPdfUrl(url.current);
+        setMessage(
+          `Đã biên dịch ${ordered.length || 1} câu theo thứ tự đã chọn. Có thể lưu PDF bên dưới.`,
+        );
+      } catch (error) {
+        setMessage(errorText(error));
+      } finally {
+        setBusy(false);
       }
-      bytes.current = new Uint8Array(result.pdf);
-      url.current = URL.createObjectURL(
-        new Blob([new Uint8Array(result.pdf)], { type: 'application/pdf' }),
-      );
-      setPdfUrl(url.current);
-      setMessage(
-        'Đã biên dịch 2 lượt. Nếu khung PDF không hiển thị trên máy này, dùng Lưu PDF để mở bằng trình đọc PDF.',
-      );
-    } catch (error) {
-      setMessage(errorText(error));
-    } finally {
-      setBusy(false);
+    },
+    [clearPdf, ordered, settings, source],
+  );
+  useEffect(() => {
+    if (ready && !autoStarted.current) {
+      autoStarted.current = true;
+      void compile();
     }
-  }
+  }, [compile, ready]);
   async function saveDeclarationAndRetry() {
     const addition = declarationDraft.trim();
     if (!addition) return;
@@ -175,7 +223,7 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
   }
   return (
     <Modal
-      title="Xem trước bằng TeX Live"
+      title={items?.length ? `Xem trước ${items.length} câu` : 'Xem trước bằng TeX Live'}
       subtitle="Tự dùng TeX Live và bộ khai báo tích hợp; giữ nguyên mã nguồn câu hỏi."
       onClose={() => {
         if (!busy) onClose();
@@ -247,6 +295,35 @@ export function TexLivePreview({ source, onClose }: { source: string; onClose: (
               Engine: <strong>{settings.engine}</strong>
             </p>
             <p role="status">{message}</p>
+            {ordered.length ? (
+              <details className="qb-batch-order">
+                <summary>Thứ tự trong PDF ({ordered.length} câu)</summary>
+                <ol>
+                  {ordered.map((item, index) => (
+                    <li key={item.id}>
+                      {item.label}{' '}
+                      <button
+                        className="button small secondary"
+                        disabled={busy || index === 0}
+                        onClick={() => move(index, -1)}
+                        aria-label={`Đưa ${item.label} lên`}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        className="button small secondary"
+                        disabled={busy || index === ordered.length - 1}
+                        onClick={() => move(index, 1)}
+                        aria-label={`Đưa ${item.label} xuống`}
+                      >
+                        ↓
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            ) : null}
+            {errorItem && <p role="alert">{errorItem}</p>}
             {issues.length > 0 && (
               <section className="qb-tex-diagnostics" role="alert">
                 <h3>Cần bổ sung khai báo ({issues.length})</h3>

@@ -56,8 +56,9 @@ export const useQuestionBank = create<QuestionBankStore>((set, get) => ({
     set({ busy: true });
     try {
       const before = get().data;
-      const after = bankSnapshotSchema.parse(recipe(before));
-      const mutations = diffBank(before, after);
+      const proposed = recipe(before);
+      const after = bankSnapshotSchema.parse(proposed);
+      const mutations = diffBank(before, after, proposed);
       if (mutations.length) {
         const revision = await (await getDriver()).commitBank(mutations, get().revision);
         set({ data: after, revision });

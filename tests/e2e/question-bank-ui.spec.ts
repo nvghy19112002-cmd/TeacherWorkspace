@@ -27,6 +27,7 @@ Trong các số sau, số nào là số nguyên tố?
 \\loigiai{Số $7$ chỉ có hai ước dương.}
 \\end{ex}`);
   await dialog.getByLabel('Loại câu').selectOption('multiple_choice');
+  await dialog.getByText('Đáp án và lời giải đã nhận diện · mở để chỉnh').click();
   await dialog.getByLabel('Đáp án').fill('C');
   await dialog.getByLabel('Lời giải').fill('Số $7$ chỉ có hai ước dương.');
   await dialog.getByRole('button', { name: 'Lưu câu hỏi', exact: true }).click();

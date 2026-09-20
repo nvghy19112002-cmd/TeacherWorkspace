@@ -50,12 +50,7 @@ export function ProviderSettings({ model, compact = false }: { model: string; co
         status: 'unchecked',
         lastCheckedAt: null,
       };
-      await saveKeyPool(() => ({
-        version: 1,
-        automatic: false,
-        activeId: 'default',
-        keys: [meta],
-      }));
+      await saveKeyPool(() => ({ version: 1, automatic: false, activeId: 'default', keys: [meta] }));
     });
     return () => {
       active = false;
@@ -134,10 +129,7 @@ export function ProviderSettings({ model, compact = false }: { model: string; co
     setBusyId(meta.id);
     controller.current = new AbortController();
     try {
-      const list = await geminiProvider.testConnection(
-        await readKey(meta.id),
-        controller.current.signal,
-      );
+      const list = await geminiProvider.testConnection(await readKey(meta.id), controller.current.signal);
       setModels((current) => [...new Set([...current, ...list])]);
       await saveKeyPool((current) => ({
         ...current,
@@ -147,7 +139,7 @@ export function ProviderSettings({ model, compact = false }: { model: string; co
             : item,
         ),
       }));
-      toast(`Kết nối thành công: ${meta.label} · ${list.length} model.`);
+      toast(`${meta.label}: kết nối thành công, ${list.length} model.`);
     } catch (error) {
       await saveKeyPool((current) => ({
         ...current,
@@ -197,11 +189,7 @@ export function ProviderSettings({ model, compact = false }: { model: string; co
           onChange={(event) => setDraft(event.target.value)}
           placeholder="Nhập Gemini API key"
         />
-        <button
-          className="button primary"
-          disabled={!draft.trim() || busyId !== null}
-          onClick={() => void add()}
-        >
+        <button className="button primary" disabled={!draft.trim() || busyId !== null} onClick={() => void add()}>
           <Plus size={16} /> Thêm key
         </button>
       </div>
@@ -224,9 +212,7 @@ export function ProviderSettings({ model, compact = false }: { model: string; co
                 const value = event.target.value;
                 void update((current) => ({
                   ...current,
-                  keys: current.keys.map((item) =>
-                    item.id === meta.id ? { ...item, label: value || meta.label } : item,
-                  ),
+                  keys: current.keys.map((item) => item.id === meta.id ? { ...item, label: value || meta.label } : item),
                 }));
               }}
             />
@@ -248,38 +234,10 @@ export function ProviderSettings({ model, compact = false }: { model: string; co
             >
               {revealed[meta.id] ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
-            <button
-              className="icon-button"
-              title="Đưa lên"
-              disabled={index === 0}
-              onClick={() => void move(index, -1)}
-            >
-              <ArrowUp size={16} />
-            </button>
-            <button
-              className="icon-button"
-              title="Đưa xuống"
-              disabled={index === pool.keys.length - 1}
-              onClick={() => void move(index, 1)}
-            >
-              <ArrowDown size={16} />
-            </button>
-            <button
-              className="icon-button"
-              title="Kiểm tra"
-              disabled={busyId !== null}
-              onClick={() => void test(meta)}
-            >
-              <RefreshCw className={busyId === meta.id ? 'spin' : ''} size={16} />
-            </button>
-            <button
-              className="icon-button danger-text"
-              title="Xóa key"
-              disabled={busyId !== null}
-              onClick={() => void remove(meta)}
-            >
-              <Trash2 size={16} />
-            </button>
+            <button className="icon-button" title="Đưa lên" disabled={index === 0} onClick={() => void move(index, -1)}><ArrowUp size={16} /></button>
+            <button className="icon-button" title="Đưa xuống" disabled={index === pool.keys.length - 1} onClick={() => void move(index, 1)}><ArrowDown size={16} /></button>
+            <button className="icon-button" title="Kiểm tra" disabled={busyId !== null} onClick={() => void test(meta)}><RefreshCw className={busyId === meta.id ? 'spin' : ''} size={16} /></button>
+            <button className="icon-button danger-text" title="Xóa key" disabled={busyId !== null} onClick={() => void remove(meta)}><Trash2 size={16} /></button>
           </div>
         ))}
       </div>
@@ -287,49 +245,29 @@ export function ProviderSettings({ model, compact = false }: { model: string; co
         <input
           type="checkbox"
           checked={pool.automatic}
-          onChange={(event) =>
-            void update((current) => ({ ...current, automatic: event.target.checked }))
-          }
+          onChange={(event) => void update((current) => ({ ...current, automatic: event.target.checked }))}
         />
         Tự chuyển sang key tiếp theo khi provider báo hết hạn mức
       </label>
       <div className="key-model-row">
         <label>
           Model dùng chung
-          <input
-            list="ai-models"
-            value={name}
-            maxLength={100}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Kiểm tra key rồi chọn model"
-          />
+          <input list="ai-models" value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder="Kiểm tra key rồi chọn model" />
         </label>
-        <datalist id="ai-models">
-          {models.map((item) => (
-            <option key={item} value={item} />
-          ))}
-        </datalist>
+        <datalist id="ai-models">{models.map((item) => <option key={item} value={item} />)}</datalist>
         <button
           className="button secondary"
           disabled={!name.trim()}
-          onClick={() =>
-            void (async () => {
-              try {
-                const value = modelNameSchema.parse(name);
-                await saveAiState((state) => ({ ...state, model: value }));
-                toast('Đã lưu model.');
-              } catch (error) {
-                toast(errorText(error), 'error');
-              }
-            })()
-          }
-        >
-          Lưu model
-        </button>
+          onClick={() => void (async () => {
+            try {
+              const value = modelNameSchema.parse(name);
+              await saveAiState((state) => ({ ...state, model: value }));
+              toast('Đã lưu model.');
+            } catch (error) { toast(errorText(error), 'error'); }
+          })()}
+        >Lưu model</button>
       </div>
-      <small>
-        Chỉ gửi nội dung khi anh xác nhận chạy AI. Yêu cầu có thể phát sinh phí theo tài khoản API.
-      </small>
+      <small>Chỉ gửi nội dung khi anh xác nhận chạy AI. Yêu cầu có thể phát sinh phí theo tài khoản API.</small>
     </section>
   );
 }

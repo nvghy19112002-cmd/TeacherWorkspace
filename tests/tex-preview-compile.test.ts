@@ -3,7 +3,10 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, delimiter } from 'node:path';
-import { prepareTexPreview } from '../src/modules/question-bank/domain/texPreview';
+import {
+  prepareTexPreview,
+  prepareTexPreviewBatch,
+} from '../src/modules/question-bank/domain/texPreview';
 
 // Native TeX fixture is optional on CI; it never substitutes a mock result.
 const hasTex = spawnSync('pdflatex', ['--version'], { timeout: 5000 }).status === 0;
@@ -87,6 +90,46 @@ Preview $x^2+1$.\choice{1}{2}{\True 3}{4}
     );
     expect(compile.status, compile.stdout + compile.stderr).toBe(0);
     expect(readFileSync(join(work, 'preview.pdf')).subarray(0, 5).toString()).toBe('%PDF-');
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+it.skipIf(!hasTex)('compiles two ordered questions with TikZ in one PDF', () => {
+  const work = mkdtempSync(join(tmpdir(), 'teacher batch tex '));
+  try {
+    const result = prepareTexPreviewBatch(
+      [
+        { id: 'b', label: 'B', source: String.raw`\begin{ex}Question B $x^2$\end{ex}` },
+        {
+          id: 'a',
+          label: 'A',
+          source: String.raw`\begin{ex}Question A \begin{tikzpicture}\draw (0,0)--(1,1);\end{tikzpicture}\end{ex}`,
+        },
+      ],
+      '',
+      { integrated: true },
+    );
+    writeFileSync(join(work, 'preview.tex'), result.document);
+    writeFileSync(join(work, 'question.tex'), result.question);
+    const compile = spawnSync(
+      'pdflatex',
+      [
+        '-no-shell-escape',
+        '-interaction=nonstopmode',
+        '-halt-on-error',
+        '-file-line-error',
+        'preview.tex',
+      ],
+      {
+        cwd: work,
+        timeout: 30000,
+        encoding: 'utf8',
+      },
+    );
+    expect(compile.status, compile.stdout + compile.stderr).toBe(0);
+    expect(readFileSync(join(work, 'preview.pdf')).subarray(0, 5).toString()).toBe('%PDF-');
+    expect(result.ranges.map((row) => row.id)).toEqual(['b', 'a']);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

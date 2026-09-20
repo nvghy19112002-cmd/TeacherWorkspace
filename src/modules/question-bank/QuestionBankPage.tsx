@@ -1,7 +1,7 @@
 import { AiIdScan } from './components/AiIdScan';
 import { TexLivePreview } from './components/TexLivePreview';
 import { uniqueImports } from './domain/importReview';
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   ChevronLeft,
@@ -46,6 +46,7 @@ import {
   findUnsupportedLatex,
   type TexPreviewSettings,
   type TexSupportIssue,
+  type BatchPreviewItem,
 } from './domain/texPreview';
 import { useQuestionBank } from './store';
 import './questionBank.css';
@@ -82,6 +83,7 @@ export default function QuestionBankPage() {
 
   const [aiQuestions, setAiQuestions] = useState<Question[] | null>(null);
   const [texSource, setTexSource] = useState<string | null>(null);
+  const [texBatch, setTexBatch] = useState<BatchPreviewItem[] | null>(null);
   const [pendingImport, setPendingImport] = useState<Question[] | null>(null);
   const [importIssues, setImportIssues] = useState<TexSupportIssue[]>([]);
   const [importDeclarationStep, setImportDeclarationStep] = useState(false);
@@ -93,6 +95,8 @@ export default function QuestionBankPage() {
   const [readingFiles, setReadingFiles] = useState(false);
   const [idQuery, setIdQuery] = useState('');
   const [contentQuery, setContentQuery] = useState('');
+  const deferredIdQuery = useDeferredValue(idQuery);
+  const deferredContentQuery = useDeferredValue(contentQuery);
   const [level, setLevel] = useState('');
   const [type, setType] = useState('');
   const [imageFilter, setImageFilter] = useState('');
@@ -144,45 +148,45 @@ export default function QuestionBankPage() {
   const lessons = children(chapterId || null, 'lesson');
   const forms = children(lessonId || null, 'form');
 
-  const visible = useMemo(
-    () =>
-      data.questions.filter((question) => {
-        if (question.deletedAt) return false;
-        const idNeedle = idQuery.trim().toLocaleLowerCase('vi');
-        const contentNeedle = contentQuery.trim().toLocaleLowerCase('vi');
-        return (
-          (!idNeedle ||
-            `${question.displayId} ${question.classificationCode}`
-              .toLocaleLowerCase('vi')
-              .includes(idNeedle)) &&
-          (!contentNeedle ||
-            `${question.rawSource} ${question.tags.join(' ')} ${question.source}`
-              .toLocaleLowerCase('vi')
-              .includes(contentNeedle)) &&
-          (!gradeId || question.gradeNodeId === gradeId) &&
-          (!domainId || question.domainNodeId === domainId) &&
-          (!chapterId || question.chapterNodeId === chapterId) &&
-          (!lessonId || question.lessonNodeId === lessonId) &&
-          (!formId || question.formNodeId === formId) &&
-          (!level || question.level === level) &&
-          (!type || question.questionType === type) &&
-          (!imageFilter || (imageFilter === 'with' ? question.hasImage : !question.hasImage))
-        );
-      }),
-    [
-      data.questions,
-      idQuery,
-      contentQuery,
-      gradeId,
-      domainId,
-      chapterId,
-      lessonId,
-      formId,
-      level,
-      type,
-      imageFilter,
-    ],
-  );
+  const visible = useMemo(() => {
+    const idNeedle = deferredIdQuery.trim().toLocaleLowerCase('vi');
+    const contentNeedle = deferredContentQuery.trim().toLocaleLowerCase('vi');
+    return data.questions.filter((question) => {
+      if (question.deletedAt) return false;
+      return (
+        (!idNeedle ||
+          `${question.displayId} ${question.classificationCode} ${question.rawSource.slice(0, 180)}`
+            .toLocaleLowerCase('vi')
+            .includes(idNeedle)) &&
+        (!contentNeedle ||
+          `${question.rawSource} ${question.tags.join(' ')} ${question.source}`
+            .toLocaleLowerCase('vi')
+            .includes(contentNeedle)) &&
+        (!gradeId || question.gradeNodeId === gradeId) &&
+        (!domainId || question.domainNodeId === domainId) &&
+        (!chapterId || question.chapterNodeId === chapterId) &&
+        (!lessonId || question.lessonNodeId === lessonId) &&
+        (!formId || question.formNodeId === formId) &&
+        (!level ||
+          (Boolean(question.classificationCode || question.gradeNodeId) &&
+            question.level === level)) &&
+        (!type || question.questionType === type) &&
+        (!imageFilter || (imageFilter === 'with' ? question.hasImage : !question.hasImage))
+      );
+    });
+  }, [
+    data.questions,
+    deferredIdQuery,
+    deferredContentQuery,
+    gradeId,
+    domainId,
+    chapterId,
+    lessonId,
+    formId,
+    level,
+    type,
+    imageFilter,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -394,6 +398,23 @@ export default function QuestionBankPage() {
     }
   }
 
+  function compileSelection() {
+    const byId = new Map(data.questions.filter((q) => !q.deletedAt).map((q) => [q.id, q]));
+    const items = checked.flatMap((id, index) => {
+      const question = byId.get(id);
+      return question
+        ? [
+            {
+              id,
+              source: question.rawSource,
+              label: `${index + 1}. ${question.displayId || question.classificationCode || 'Câu nháp'}`,
+            },
+          ]
+        : [];
+    });
+    if (items.length) setTexBatch(items);
+  }
+
   async function buildExamFromSelection() {
     const questions = data.questions.filter((question) => checked.includes(question.id));
     if (!questions.length) return;
@@ -476,6 +497,11 @@ export default function QuestionBankPage() {
               <button onClick={() => void copyQuestions(checked)}>
                 <Copy size={15} /> Chép code
               </button>
+              {isDesktop && (
+                <button onClick={compileSelection}>
+                  <Eye size={15} /> Biên dịch đã chọn
+                </button>
+              )}
               <button
                 onClick={() => {
                   select(checked[0]);
@@ -717,7 +743,9 @@ export default function QuestionBankPage() {
                     </td>
                     <td>
                       <span className={`qb-badge level-${question.level.toLowerCase()}`}>
-                        {LEVEL_LABELS[question.level]}
+                        {question.classificationCode || question.gradeNodeId
+                          ? LEVEL_LABELS[question.level]
+                          : 'Chưa xác định'}
                       </span>
                     </td>
                     <td>
@@ -794,7 +822,9 @@ export default function QuestionBankPage() {
                   {QUESTION_TYPE_LABELS[selected.questionType]}
                 </span>
                 <span className={`qb-badge level-${selected.level.toLowerCase()}`}>
-                  {LEVEL_LABELS[selected.level]}
+                  {selected.classificationCode || selected.gradeNodeId
+                    ? LEVEL_LABELS[selected.level]
+                    : 'Chưa xác định'}
                 </span>
                 <span className="qb-path-label">
                   {curriculumPath(data, selected.formNodeId || selected.lessonNodeId) ||
@@ -852,6 +882,13 @@ export default function QuestionBankPage() {
       {aiQuestions && <AiIdScan questions={aiQuestions} onClose={() => setAiQuestions(null)} />}
       {texSource !== null && (
         <TexLivePreview source={texSource} onClose={() => setTexSource(null)} />
+      )}
+      {texBatch !== null && (
+        <TexLivePreview
+          source={texBatch[0].source}
+          items={texBatch}
+          onClose={() => setTexBatch(null)}
+        />
       )}
       {pendingImport && (
         <Modal

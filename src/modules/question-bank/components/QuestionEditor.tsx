@@ -240,24 +240,27 @@ export function QuestionEditor({
                 onChange={(event) => setDraft({ ...draft, rawSource: event.target.value })}
               />
             )}
-            <div className="form-grid">
-              <label className="field">
-                Đáp án
-                <textarea
-                  rows={3}
-                  value={draft.answer}
-                  onChange={(event) => setDraft({ ...draft, answer: event.target.value })}
-                />
-              </label>
-              <label className="field">
-                Lời giải
-                <textarea
-                  rows={3}
-                  value={draft.solution}
-                  onChange={(event) => setDraft({ ...draft, solution: event.target.value })}
-                />
-              </label>
-            </div>
+            <details className="qb-editor-optional">
+              <summary>Đáp án và lời giải đã nhận diện · mở để chỉnh</summary>
+              <div className="form-grid">
+                <label className="field">
+                  Đáp án
+                  <textarea
+                    rows={3}
+                    value={draft.answer}
+                    onChange={(event) => setDraft({ ...draft, answer: event.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  Lời giải
+                  <textarea
+                    rows={3}
+                    value={draft.solution}
+                    onChange={(event) => setDraft({ ...draft, solution: event.target.value })}
+                  />
+                </label>
+              </div>
+            </details>
           </div>
           <div className="qb-metadata-fields">
             <label className="field">
@@ -293,66 +296,75 @@ export function QuestionEditor({
                 ))}
               </select>
             </label>
-            {select('Lớp', 'gradeNodeId', grades)}
-            {select('Mạch kiến thức', 'domainNodeId', domains)}
-            {select('Chương', 'chapterNodeId', chapters)}
-            {select('Bài', 'lessonNodeId', lessons)}
-            {select('Dạng', 'formNodeId', forms)}
-            <label className="field">
-              Yêu cầu cần đạt
-              <select
-                value={draft.primaryOutcomeId ?? ''}
-                onChange={(event) =>
-                  setDraft({ ...draft, primaryOutcomeId: event.target.value || null })
-                }
-              >
-                <option value="">— Chưa chọn —</option>
-                {outcomes.map((row) => (
-                  <option key={row.id} value={row.id}>
-                    {row.code} · {row.content}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              Nguồn
-              <input
-                value={draft.source}
-                maxLength={1000}
-                onChange={(event) => setDraft({ ...draft, source: event.target.value })}
-              />
-            </label>
-            <label className="field">
-              Nhãn, phân cách bằng dấu phẩy
-              <input
-                value={draft.tags.join(', ')}
-                onChange={(event) =>
-                  setDraft({
-                    ...draft,
-                    tags: event.target.value
-                      .split(',')
-                      .map((item) => item.trim())
-                      .filter(Boolean)
-                      .slice(0, 100),
-                  })
-                }
-              />
-            </label>
-            <label className="field">
-              Trạng thái
-              <select
-                value={draft.status}
-                onChange={(event) =>
-                  setDraft({ ...draft, status: event.target.value as Question['status'] })
-                }
-              >
-                {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <details className="qb-editor-optional" open={!question || Boolean(draft.gradeNodeId)}>
+              <summary>
+                Phân loại theo cây KNTT{' '}
+                {classificationCode ? `· ${classificationCode}` : '· chưa chọn'}
+              </summary>
+              {select('Lớp', 'gradeNodeId', grades)}
+              {select('Mạch kiến thức', 'domainNodeId', domains)}
+              {select('Chương', 'chapterNodeId', chapters)}
+              {select('Bài', 'lessonNodeId', lessons)}
+              {select('Dạng', 'formNodeId', forms)}
+            </details>
+            <details className="qb-editor-optional">
+              <summary>Thông tin bổ sung · yêu cầu cần đạt, nguồn, nhãn</summary>
+              <label className="field">
+                Yêu cầu cần đạt
+                <select
+                  value={draft.primaryOutcomeId ?? ''}
+                  onChange={(event) =>
+                    setDraft({ ...draft, primaryOutcomeId: event.target.value || null })
+                  }
+                >
+                  <option value="">— Chưa chọn —</option>
+                  {outcomes.map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.code} · {row.content}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Nguồn
+                <input
+                  value={draft.source}
+                  maxLength={1000}
+                  onChange={(event) => setDraft({ ...draft, source: event.target.value })}
+                />
+              </label>
+              <label className="field">
+                Nhãn, phân cách bằng dấu phẩy
+                <input
+                  value={draft.tags.join(', ')}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      tags: event.target.value
+                        .split(',')
+                        .map((item) => item.trim())
+                        .filter(Boolean)
+                        .slice(0, 100),
+                    })
+                  }
+                />
+              </label>
+              <label className="field">
+                Trạng thái
+                <select
+                  value={draft.status}
+                  onChange={(event) =>
+                    setDraft({ ...draft, status: event.target.value as Question['status'] })
+                  }
+                >
+                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </details>
             <div className="qb-id-preview">
               <span>Mã sẽ lưu</span>
               <strong>

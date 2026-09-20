@@ -1,5 +1,9 @@
 # Teacher Workspace
 
+## V1.8.0 · ID6, TeX Live nhiều câu và nhập liệu gọn
+
+Bản cập nhật kiểm tra ID6 theo cây do người dùng cung cấp, biên dịch tự động khi mở xem trước và gộp các câu tích chọn theo đúng thứ tự vào một PDF. Màn hình thêm câu đã thu gọn các trường ít dùng; việc lưu chỉ mã hóa các bản ghi thay đổi. Xem [hướng dẫn cập nhật và giới hạn](docs/UPDATE_V1.8.0.md).
+
 ## Cập nhật thủ công trong ứng dụng
 
 Từ V1.4.1, khi chưa bật GitHub auto-update, người dùng tải installer Windows mới rồi vào **Cài đặt → Cập nhật từ file đã tải**. Ứng dụng kiểm tra file, từ chối phiên bản bằng/cũ hơn, sao lưu SQLite, mở installer và tự đóng. Xem chi tiết tại `docs/MANUAL_UPDATE.md`.
@@ -105,7 +109,7 @@ npm run desktop:build -- --config src-tauri/tauri.ci.conf.json
 Kết quả sau **khi build thành công trên Windows x64**:
 
 - Executable: `src-tauri\target\release\teacher-workspace.exe`
-- Installer NSIS: `src-tauri\target\release\bundle\nsis\Teacher Workspace_1.7.0_x64-setup.exe`
+- Installer NSIS: `src-tauri\target\release\bundle\nsis\Teacher Workspace_1.8.0_x64-setup.exe`
 
 Installer thông thường nhúng WebView2 bootstrapper; nếu máy chưa có WebView2, bước cài runtime cần mạng. Để tạo installer chứa cả runtime và cài trên máy hoàn toàn offline:
 

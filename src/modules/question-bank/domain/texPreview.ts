@@ -203,6 +203,48 @@ export interface PreparedPreview {
   sourceLineOffset: number;
 }
 
+export interface BatchPreviewItem {
+  id: string;
+  label: string;
+  source: string;
+}
+
+export interface PreparedBatchPreview extends PreparedPreview {
+  ranges: { id: string; label: string; firstLine: number; lastLine: number }[];
+}
+
+/** Make a single PDF in the chosen order; preserve each question's original LaTeX verbatim. */
+export function prepareTexPreviewBatch(
+  items: BatchPreviewItem[],
+  setup: string,
+  options: { integrated?: boolean; additionalPreamble?: string } = {},
+): PreparedBatchPreview {
+  if (!items.length) throw new Error('Chọn ít nhất một câu để biên dịch.');
+  const prepared = items.map((item) => prepareTexPreview(item.source, setup, options));
+  const ranges: PreparedBatchPreview['ranges'] = [];
+  const parts: string[] = [];
+  let nextLine = 1;
+  prepared.forEach((row, index) => {
+    if (index) {
+      parts.push('\\clearpage\n');
+      nextLine += 1;
+    }
+    const question = row.question.endsWith('\n') ? row.question : `${row.question}\n`;
+    const firstLine = nextLine + row.sourceLineOffset;
+    ranges.push({
+      id: items[index].id,
+      label: items[index].label,
+      firstLine,
+      lastLine: firstLine + items[index].source.split('\n').length - 1,
+    });
+    parts.push(question);
+    nextLine += question.split('\n').length - 1;
+  });
+  const question = parts.join('');
+  if (question.length > 500_000) throw new Error('Tổng mã LaTeX vượt quá 500 KB.');
+  return { ...prepared[0], question, ranges, sourceLineOffset: 0 };
+}
+
 /** Construct disposable preview files; never rewrite the saved question. */
 export function prepareTexPreview(
   raw: string,

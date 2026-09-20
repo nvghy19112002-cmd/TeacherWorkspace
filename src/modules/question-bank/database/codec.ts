@@ -1,9 +1,5 @@
 import type { DbRow, SqlValue } from '../../../database/codec';
-import {
-  bankSnapshotSchema,
-  emptyBankSnapshot,
-  type BankSnapshot,
-} from '../domain/model';
+import { bankSnapshotSchema, emptyBankSnapshot, type BankSnapshot } from '../domain/model';
 
 export const BANK_TABLES = [
   'curriculum_nodes',
@@ -230,20 +226,40 @@ export function decodeBank(tables?: BankDbTables): BankSnapshot {
   });
 }
 
-export function diffBank(before: BankSnapshot, after: BankSnapshot): BankMutation[] {
-  const left = encodeBank(before);
-  const right = encodeBank(after);
+const snapshotFields = {
+  curriculum_nodes: 'curriculumNodes',
+  learning_outcomes: 'learningOutcomes',
+  questions: 'questions',
+  question_revisions: 'revisions',
+  classification_runs: 'classificationRuns',
+  exams: 'exams',
+  exam_items: 'examItems',
+} as const;
+
+export function diffBank(
+  before: BankSnapshot,
+  after: BankSnapshot,
+  proposed = after,
+): BankMutation[] {
   const output: BankMutation[] = [];
   for (const table of [...BANK_TABLES].reverse()) {
-    const ids = new Set(right[table].map((row) => row.id));
-    for (const row of left[table])
-      if (!ids.has(row.id)) output.push({ table, id: String(row.id), row: null });
+    const field = snapshotFields[table];
+    const ids = new Set(after[field].map((row) => row.id));
+    for (const row of before[field])
+      if (!ids.has(row.id)) output.push({ table, id: row.id, row: null });
   }
   for (const table of BANK_TABLES) {
-    const previous = new Map(left[table].map((row) => [row.id, JSON.stringify(row)]));
-    for (const row of right[table])
-      if (previous.get(row.id) !== JSON.stringify(row))
-        output.push({ table, id: String(row.id), row });
+    const field = snapshotFields[table];
+    const previous = new Map(before[field].map((row) => [row.id, row]));
+    const requested = new Map(proposed[field].map((row) => [row.id, row]));
+    for (const row of after[field]) {
+      const old = previous.get(row.id);
+      if (old && (old === requested.get(row.id) || JSON.stringify(old) === JSON.stringify(row)))
+        continue;
+      // Encode only new/changed records, never serialize every LaTeX source for a single edit.
+      const oneRow = { ...emptyBankSnapshot(), [field]: [row] } as BankSnapshot;
+      output.push({ table, id: row.id, row: encodeBank(oneRow)[table][0] });
+    }
   }
   return output;
 }

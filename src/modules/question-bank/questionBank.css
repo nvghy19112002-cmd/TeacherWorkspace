@@ -718,6 +718,43 @@
   gap: 9px;
 }
 
+.qb-editor-optional {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--soft);
+}
+
+.qb-editor-optional > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.qb-editor-optional[open] > summary {
+  margin-bottom: 10px;
+}
+
+.qb-editor-optional > .field + .field {
+  margin-top: 9px;
+}
+
+.qb-batch-order ol {
+  max-height: 160px;
+  overflow-y: auto;
+  padding-inline-start: 24px;
+}
+
+.qb-batch-order li {
+  margin: 5px 0;
+}
+
+.qb-batch-order button {
+  margin-left: 5px;
+}
+
 .qb-id-preview {
   display: grid;
   gap: 4px;
